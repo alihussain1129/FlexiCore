@@ -6,30 +6,41 @@ using FlexiCore.Identity.Settings;
 using FlexiCore.SharedKernel;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
 
 namespace FlexiCore.Identity.Endpoints;
 
 public sealed record RegisterRequest(string? Email, string? Password);
 public sealed record LoginRequest(string? Email, string? Password);
+public sealed record RefreshRequest(string? RefreshToken);
+public sealed record LogoutRequest(string? RefreshToken);
 public sealed record RegisterResponse(Guid Id, string Email);
-public sealed record LoginResponse(string AccessToken, string TokenType, int ExpiresIn);
+/// <summary>Returned by both login and refresh.</summary>
+public sealed record LoginResponse(string AccessToken, string TokenType, int ExpiresIn, string RefreshToken);
 public sealed record MeResponse(Guid Id, string Email);
 
 internal static class AuthEndpoints
 {
     private const int MaxLoginPasswordLength = 1024;
 
-    // One fixed body for every failed login (unknown email, wrong password, inactive account), so responses are byte-identical.
+    // One fixed body for every failed login (unknown email, wrong password, locked or inactive account), so responses are byte-identical.
     private const string InvalidCredentialsBody =
         "{\"type\":\"urn:flexicore:problem:invalid-credentials\",\"title\":\"Invalid credentials\",\"status\":401," +
         "\"detail\":\"The email or password is incorrect.\"}";
 
+    // One fixed body for every refresh failure (malformed, unknown, expired, revoked, reused, inactive user).
+    private const string InvalidRefreshBody =
+        "{\"type\":\"urn:flexicore:problem:invalid-refresh-token\",\"title\":\"Invalid refresh token\",\"status\":401," +
+        "\"detail\":\"The refresh token is invalid, expired or has been revoked.\"}";
+
     public static void Map(IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/v1/auth");
-        group.MapPost("/register", RegisterAsync);
-        group.MapPost("/login", LoginAsync);
+        group.MapPost("/register", RegisterAsync).RequireRateLimiting(IdentityModule.RateLimitPolicy);
+        group.MapPost("/login", LoginAsync).RequireRateLimiting(IdentityModule.RateLimitPolicy);
+        group.MapPost("/refresh", RefreshAsync).RequireRateLimiting(IdentityModule.RateLimitPolicy);
+        group.MapPost("/logout", LogoutAsync).RequireRateLimiting(IdentityModule.RateLimitPolicy);
         group.MapGet("/me", MeAsync).RequireAuthorization();
     }
 
@@ -70,8 +81,8 @@ internal static class AuthEndpoints
     }
 
     private static async Task<IResult> LoginAsync(
-        LoginRequest request, HttpContext http, JwtSettings jwt, IPasswordService passwords, ITokenService tokens,
-        UserStore users, AuditWriter audit, CancellationToken ct)
+        LoginRequest request, HttpContext http, JwtSettings jwt, IdentitySettings identity, IPasswordService passwords,
+        ITokenService tokens, UserStore users, RefreshSessionStore sessions, AuditWriter audit, CancellationToken ct)
     {
         var errors = new Dictionary<string, string[]>();
         if (string.IsNullOrWhiteSpace(request.Email)) errors["email"] = ["Email is required."];
@@ -100,9 +111,20 @@ internal static class AuthEndpoints
             return InvalidCredentials();
         }
 
+        if (user.IsLocked)
+        {
+            // The password is deliberately not checked while locked, so a lock cannot be used to test guesses.
+            // The response is identical to every other failed login, so it does not reveal that the account exists.
+            passwords.BurnVerificationTime(password);
+            await audit.WriteAsync(
+                new AuditEvent("auth.login", "denied", user.Id, "user", user.Id.ToString(), correlationId, Reason("account_locked")), ct);
+            return InvalidCredentials();
+        }
+
         var check = passwords.Verify(user.PasswordHash, password);
         if (check == PasswordCheck.Failed)
         {
+            await users.RegisterFailedLoginAsync(user.Id, identity.LockoutMaxFailedAttempts, identity.LockoutMinutes, correlationId, ct);
             await audit.WriteAsync(
                 new AuditEvent("auth.login", "failure", user.Id, "user", user.Id.ToString(), correlationId, Reason("bad_password")), ct);
             return InvalidCredentials();
@@ -116,13 +138,53 @@ internal static class AuthEndpoints
         }
 
         var newHash = check == PasswordCheck.SuccessRehashNeeded ? passwords.Hash(password) : null;
-        await users.UpdateAfterLoginAsync(user.Id, newHash, ct);
+        var refreshToken = RefreshTokenCodec.Generate();
+        var familyId = await sessions.CompleteLoginAsync(
+            user.Id, newHash, RefreshTokenCodec.Hash(refreshToken), identity.RefreshTokenDays, correlationId, ct);
 
-        var token = tokens.CreateAccessToken(user.Id);
-        await audit.WriteAsync(
-            new AuditEvent("auth.login", "success", user.Id, "user", user.Id.ToString(), correlationId), ct);
+        var token = tokens.CreateAccessToken(user.Id, familyId);
+        return Results.Ok(new LoginResponse(token.Value, "Bearer", jwt.AccessTokenMinutes * 60, refreshToken));
+    }
 
-        return Results.Ok(new LoginResponse(token.Value, "Bearer", jwt.AccessTokenMinutes * 60));
+    private static async Task<IResult> RefreshAsync(
+        RefreshRequest request, HttpContext http, JwtSettings jwt, IdentitySettings identity, ITokenService tokens,
+        RefreshSessionStore sessions, AuditWriter audit, CancellationToken ct)
+    {
+        http.Response.Headers.CacheControl = "no-store";
+        var correlationId = CorrelationId(http);
+
+        if (!RefreshTokenCodec.IsWellFormed(request.RefreshToken))
+        {
+            await audit.WriteAsync(
+                new AuditEvent("auth.refresh", "failure", CorrelationId: correlationId, Metadata: Reason("malformed")), ct);
+            return InvalidRefreshToken();
+        }
+
+        var newToken = RefreshTokenCodec.Generate();
+        var result = await sessions.RotateAsync(
+            RefreshTokenCodec.Hash(request.RefreshToken!), RefreshTokenCodec.Hash(newToken), identity.RefreshTokenDays, correlationId, ct);
+        if (result.Outcome != RefreshOutcome.Rotated) return InvalidRefreshToken();
+
+        var access = tokens.CreateAccessToken(result.UserId!.Value, result.FamilyId!.Value);
+        return Results.Ok(new LoginResponse(access.Value, "Bearer", jwt.AccessTokenMinutes * 60, newToken));
+    }
+
+    private static async Task<IResult> LogoutAsync(
+        LogoutRequest request, HttpContext http, RefreshSessionStore sessions, AuditWriter audit, CancellationToken ct)
+    {
+        http.Response.Headers.CacheControl = "no-store";
+        var correlationId = CorrelationId(http);
+
+        // Always 204 for a well-formed JSON body, so logout cannot be used to test whether a token exists.
+        if (!RefreshTokenCodec.IsWellFormed(request.RefreshToken))
+        {
+            await audit.WriteAsync(
+                new AuditEvent("auth.logout", "failure", CorrelationId: correlationId, Metadata: Reason("malformed")), ct);
+            return Results.NoContent();
+        }
+
+        await sessions.LogoutAsync(RefreshTokenCodec.Hash(request.RefreshToken!), correlationId, ct);
+        return Results.NoContent();
     }
 
     private static async Task<IResult> MeAsync(ClaimsPrincipal principal, UserStore users, CancellationToken ct)
@@ -137,6 +199,9 @@ internal static class AuthEndpoints
 
     private static IResult InvalidCredentials() =>
         Results.Content(InvalidCredentialsBody, "application/problem+json", Encoding.UTF8, StatusCodes.Status401Unauthorized);
+
+    private static IResult InvalidRefreshToken() =>
+        Results.Content(InvalidRefreshBody, "application/problem+json", Encoding.UTF8, StatusCodes.Status401Unauthorized);
 
     private static string? CorrelationId(HttpContext http) =>
         http.Items.TryGetValue(CorrelationContext.ItemKey, out var value) ? value as string : null;

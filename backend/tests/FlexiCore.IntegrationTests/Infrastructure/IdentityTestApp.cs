@@ -4,6 +4,8 @@ using System.Text.Json;
 using FlexiCore.Migrations;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace FlexiCore.IntegrationTests.Infrastructure;
 
@@ -23,7 +25,11 @@ public sealed class IdentityTestApp : IAsyncDisposable
     }
 
     /// <param name="registrationEnabled">"true", "false", or null to leave Registration:Enabled unset (the default).</param>
-    public static async Task<IdentityTestApp> StartAsync(PostgresFixture postgres, string? registrationEnabled = "true")
+    /// <param name="rateLimitPerMinute">Per-IP request limit for the auth endpoints; high by default so ordinary tests never hit it.</param>
+    /// <param name="configureServices">Optional test-only service overrides (for example a log-capturing provider).</param>
+    public static async Task<IdentityTestApp> StartAsync(
+        PostgresFixture postgres, string? registrationEnabled = "true", string rateLimitPerMinute = "100000",
+        Action<IServiceCollection>? configureServices = null)
     {
         var db = await postgres.CreateDatabaseAsync();
         await new MigrationRunner(db.OwnerConnectionString).RunAsync();
@@ -31,8 +37,13 @@ public sealed class IdentityTestApp : IAsyncDisposable
         Environment.SetEnvironmentVariable("ConnectionStrings__Default", db.AppConnectionString);
         Environment.SetEnvironmentVariable("Jwt__SigningKey", TestSecrets.SigningKeyBase64);
         Environment.SetEnvironmentVariable("Registration__Enabled", registrationEnabled);
+        Environment.SetEnvironmentVariable("Identity__RateLimit__PermitPerMinute", rateLimitPerMinute);
 
-        var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b => b.UseEnvironment("Testing"));
+        var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
+        {
+            b.UseEnvironment("Testing");
+            if (configureServices is not null) b.ConfigureTestServices(configureServices);
+        });
         return new IdentityTestApp(db, factory);
     }
 
@@ -41,6 +52,12 @@ public sealed class IdentityTestApp : IAsyncDisposable
 
     public Task<HttpResponseMessage> LoginAsync(string email, string password, string? correlationId = null) =>
         PostAsync("/api/v1/auth/login", email, password, correlationId);
+
+    public Task<HttpResponseMessage> RefreshAsync(string? refreshToken) =>
+        PostJsonAsync("/api/v1/auth/refresh", new { refreshToken });
+
+    public Task<HttpResponseMessage> LogoutAsync(string? refreshToken) =>
+        PostJsonAsync("/api/v1/auth/logout", new { refreshToken });
 
     public Task<HttpResponseMessage> MeAsync(string? accessToken)
     {
@@ -53,13 +70,16 @@ public sealed class IdentityTestApp : IAsyncDisposable
     public static async Task<JsonElement> ReadJsonAsync(HttpResponseMessage response) =>
         await response.Content.ReadFromJsonAsync<JsonElement>();
 
-    private Task<HttpResponseMessage> PostAsync(string url, string? email, string? password, string? correlationId)
+    public Task<HttpResponseMessage> PostJsonAsync(string url, object body, string? correlationId = null)
     {
-        var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent.Create(new { email, password }) };
+        var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent.Create(body) };
         if (correlationId is not null)
             request.Headers.TryAddWithoutValidation("X-Correlation-Id", correlationId);
         return Client.SendAsync(request);
     }
+
+    private Task<HttpResponseMessage> PostAsync(string url, string? email, string? password, string? correlationId) =>
+        PostJsonAsync(url, new { email, password }, correlationId);
 
     public async ValueTask DisposeAsync()
     {

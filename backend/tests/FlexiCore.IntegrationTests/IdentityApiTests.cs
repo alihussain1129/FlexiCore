@@ -33,12 +33,12 @@ public sealed class IdentityApiTests(PostgresFixture postgres)
 
     private static string Mint(
         Guid sub, DateTime? expires = null, string issuer = "flexicore", string audience = "flexicore-api",
-        byte[]? key = null, string algorithm = SecurityAlgorithms.HmacSha256)
+        byte[]? key = null, string algorithm = SecurityAlgorithms.HmacSha256, string? sid = null)
     {
         var now = DateTime.UtcNow;
         return new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
         {
-            Subject = new ClaimsIdentity(new[] { new Claim("sub", sub.ToString()) }),
+            Subject = new ClaimsIdentity(sid is null ? new[] { new Claim("sub", sub.ToString()) } : new[] { new Claim("sub", sub.ToString()), new Claim("sid", sid) }),
             Issuer = issuer,
             Audience = audience,
             IssuedAt = now.AddMinutes(-30),
@@ -50,21 +50,21 @@ public sealed class IdentityApiTests(PostgresFixture postgres)
 
     // Signed by hand with the server's real key: IdentityModel refuses HS512 with a 256-bit key,
     // and this test must prove that the server pins HS256 even when the signature itself is valid.
-    private static string HandSigned(Guid sub, string alg)
+    private static string HandSigned(Guid sub, string alg, string sid)
     {
         var header = Base64UrlEncoder.Encode($"{{\"alg\":\"{alg}\",\"typ\":\"JWT\"}}");
         var exp = DateTimeOffset.UtcNow.AddMinutes(10).ToUnixTimeSeconds();
-        var payload = Base64UrlEncoder.Encode($"{{\"sub\":\"{sub}\",\"iss\":\"flexicore\",\"aud\":\"flexicore-api\",\"exp\":{exp}}}");
+        var payload = Base64UrlEncoder.Encode($"{{\"sub\":\"{sub}\",\"sid\":\"{sid}\",\"iss\":\"flexicore\",\"aud\":\"flexicore-api\",\"exp\":{exp}}}");
         var signingInput = $"{header}.{payload}";
         var signature = HMACSHA512.HashData(TestSecrets.SigningKey, Encoding.ASCII.GetBytes(signingInput));
         return $"{signingInput}.{Base64UrlEncoder.Encode(signature)}";
     }
 
-    private static string AlgNone(Guid sub)
+    private static string AlgNone(Guid sub, string sid)
     {
         var header = Base64UrlEncoder.Encode("{\"alg\":\"none\",\"typ\":\"JWT\"}");
         var exp = DateTimeOffset.UtcNow.AddMinutes(10).ToUnixTimeSeconds();
-        var payload = Base64UrlEncoder.Encode($"{{\"sub\":\"{sub}\",\"iss\":\"flexicore\",\"aud\":\"flexicore-api\",\"exp\":{exp}}}");
+        var payload = Base64UrlEncoder.Encode($"{{\"sub\":\"{sub}\",\"sid\":\"{sid}\",\"iss\":\"flexicore\",\"aud\":\"flexicore-api\",\"exp\":{exp}}}");
         return $"{header}.{payload}.";
     }
 
@@ -211,16 +211,17 @@ public sealed class IdentityApiTests(PostgresFixture postgres)
         await using var app = await IdentityTestApp.StartAsync(postgres);
         var (id, good) = await RegisterAndLoginAsync(app);
         Assert.Equal(HttpStatusCode.OK, (await app.MeAsync(good)).StatusCode); // control: the valid token works
+        var sid = new JsonWebTokenHandler().ReadJsonWebToken(good).GetPayloadValue<string>("sid");
 
         var bad = kind switch
         {
             "tampered-signature" => TamperSignature(good),
-            "expired" => Mint(id, expires: DateTime.UtcNow.AddMinutes(-10)),
-            "wrong-key" => Mint(id, key: SHA256.HashData(Encoding.UTF8.GetBytes("another-key"))),
-            "wrong-issuer" => Mint(id, issuer: "someone-else"),
-            "wrong-audience" => Mint(id, audience: "another-api"),
-            "hs512" => HandSigned(id, "HS512"),
-            "alg-none" => AlgNone(id),
+            "expired" => Mint(id, expires: DateTime.UtcNow.AddMinutes(-10), sid: sid),
+            "wrong-key" => Mint(id, key: SHA256.HashData(Encoding.UTF8.GetBytes("another-key")), sid: sid),
+            "wrong-issuer" => Mint(id, issuer: "someone-else", sid: sid),
+            "wrong-audience" => Mint(id, audience: "another-api", sid: sid),
+            "hs512" => HandSigned(id, "HS512", sid),
+            "alg-none" => AlgNone(id, sid),
             _ => throw new ArgumentOutOfRangeException(nameof(kind))
         };
 

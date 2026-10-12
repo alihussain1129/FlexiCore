@@ -3,14 +3,15 @@ using NpgsqlTypes;
 
 namespace FlexiCore.Identity.Data;
 
-public sealed record UserRecord(Guid Id, string Email, string PasswordHash, string Status)
+public sealed record UserRecord(Guid Id, string Email, string PasswordHash, string Status, bool IsLocked)
 {
     public bool IsActive => Status == "active";
 }
 
 public sealed class UserStore(NpgsqlDataSource dataSource, AuditWriter audit)
 {
-    private const string SelectColumns = "select id, email, password_hash, status from identity.users ";
+    private const string SelectColumns =
+        "select id, email, password_hash, status, (locked_until is not null and locked_until > now()) from identity.users ";
 
     public async Task<UserRecord?> FindByNormalizedEmailAsync(string normalizedEmail, CancellationToken ct)
     {
@@ -59,21 +60,48 @@ public sealed class UserStore(NpgsqlDataSource dataSource, AuditWriter audit)
         }
     }
 
-    /// <summary>Records the login time and, when the stored hash is outdated, replaces it with a fresh one.</summary>
-    public async Task UpdateAfterLoginAsync(Guid userId, string? newPasswordHash, CancellationToken ct)
+    /// <summary>
+    /// Counts a failed password attempt atomically, in one statement, so concurrent attempts cannot undercount.
+    /// The counter lives on the user row, which is found through the normalized email, so casing or whitespace
+    /// variants of an address all hit the same counter. An expired lock restarts the count at 1.
+    /// Returns true when this failure locked the account (and writes the lockout audit row in the same transaction).
+    /// </summary>
+    public async Task<bool> RegisterFailedLoginAsync(Guid userId, int maxAttempts, int lockMinutes, string? correlationId, CancellationToken ct)
     {
-        await using var command = dataSource.CreateCommand(
-            "update identity.users set last_login_at = now(), password_hash = coalesce(@hash, password_hash) where id = @id");
-        command.Parameters.Add(new NpgsqlParameter("hash", NpgsqlDbType.Text) { Value = (object?)newPasswordHash ?? DBNull.Value });
-        command.Parameters.AddWithValue("id", userId);
-        await command.ExecuteNonQueryAsync(ct);
+        await using var connection = await dataSource.OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(ct);
+
+        int count;
+        await using (var update = new NpgsqlCommand(
+            "update identity.users set " +
+            "failed_login_count = case when locked_until is not null and locked_until <= now() then 1 else failed_login_count + 1 end, " +
+            "locked_until = case when (case when locked_until is not null and locked_until <= now() then 1 else failed_login_count + 1 end) >= @max " +
+            "then now() + @minutes * interval '1 minute' else null end " +
+            "where id = @id returning failed_login_count", connection, transaction))
+        {
+            update.Parameters.Add(new NpgsqlParameter("max", NpgsqlDbType.Integer) { Value = maxAttempts });
+            update.Parameters.Add(new NpgsqlParameter("minutes", NpgsqlDbType.Integer) { Value = lockMinutes });
+            update.Parameters.Add(new NpgsqlParameter("id", NpgsqlDbType.Uuid) { Value = userId });
+            count = (int)(await update.ExecuteScalarAsync(ct))!;
+        }
+
+        var locked = count >= maxAttempts;
+        if (locked)
+        {
+            await audit.WriteAsync(connection, transaction,
+                new AuditEvent("auth.lockout", "denied", userId, "user", userId.ToString(), correlationId,
+                    new Dictionary<string, string> { ["reason"] = "too_many_failed_logins" }), ct);
+        }
+
+        await transaction.CommitAsync(ct);
+        return locked;
     }
 
     private static async Task<UserRecord?> ReadOneAsync(NpgsqlCommand command, CancellationToken ct)
     {
         await using var reader = await command.ExecuteReaderAsync(ct);
         return await reader.ReadAsync(ct)
-            ? new UserRecord(reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3))
+            ? new UserRecord(reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetBoolean(4))
             : null;
     }
 }

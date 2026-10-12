@@ -110,7 +110,7 @@ public class TokenServiceTests
     public void Tokens_are_hs256_with_the_expected_claims_and_a_15_minute_lifetime()
     {
         var userId = Guid.NewGuid();
-        var token = NewService().CreateAccessToken(userId);
+        var token = NewService().CreateAccessToken(userId, Guid.NewGuid());
         var jwt = new JsonWebTokenHandler().ReadJsonWebToken(token.Value);
 
         Assert.Equal("HS256", jwt.Alg);
@@ -128,6 +128,6 @@ public class TokenServiceTests
         var service = NewService();
         var userId = Guid.NewGuid();
 
-        Assert.NotEqual(service.CreateAccessToken(userId).Value, service.CreateAccessToken(userId).Value);
+        Assert.NotEqual(service.CreateAccessToken(userId, Guid.NewGuid()).Value, service.CreateAccessToken(userId, Guid.NewGuid()).Value);
     }
 }
