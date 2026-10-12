@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/FlexiCore.Api/FlexiCore.Api.csproj" />
+    <Project Path="src/FlexiCore.Migrations/FlexiCore.Migrations.csproj" />
+    <Project Path="src/FlexiCore.SharedKernel/FlexiCore.SharedKernel.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FlexiCore.ArchitectureTests/FlexiCore.ArchitectureTests.csproj" />
+    <Project Path="tests/FlexiCore.IntegrationTests/FlexiCore.IntegrationTests.csproj" />
+    <Project Path="tests/FlexiCore.UnitTests/FlexiCore.UnitTests.csproj" />
+  </Folder>
+</Solution>

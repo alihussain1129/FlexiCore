@@ -1,0 +1,23 @@
+name: flexicore
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: flexicore
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+      FLEXICORE_OWNER_PASSWORD: ${FLEXICORE_OWNER_PASSWORD}
+      FLEXICORE_APP_PASSWORD: ${FLEXICORE_APP_PASSWORD}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d flexicore"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+volumes:
+  pgdata:

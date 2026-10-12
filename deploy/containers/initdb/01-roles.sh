@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+  -v owner_pw="$FLEXICORE_OWNER_PASSWORD" -v app_pw="$FLEXICORE_APP_PASSWORD" <<'EOSQL'
+CREATE ROLE flexicore_owner LOGIN PASSWORD :'owner_pw' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+CREATE ROLE flexicore_app   LOGIN PASSWORD :'app_pw'   NOSUPERUSER NOCREATEDB NOCREATEROLE;
+ALTER DATABASE flexicore OWNER TO flexicore_owner;
+GRANT CONNECT ON DATABASE flexicore TO flexicore_app;
+EOSQL
