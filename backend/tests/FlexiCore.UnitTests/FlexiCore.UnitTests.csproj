@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\FlexiCore.Identity\FlexiCore.Identity.csproj" />
     <ProjectReference Include="..\..\src\FlexiCore.Migrations\FlexiCore.Migrations.csproj" />
   </ItemGroup>
 

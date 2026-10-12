@@ -31,3 +31,18 @@ Dev passwords live in the git-ignored `deploy/containers/.env` and in .NET user-
 
 ## D10. Test stack
 xUnit v2 (from the template), Testcontainers.PostgreSql for real-database tests, Microsoft.AspNetCore.Mvc.Testing for in-process API tests, NetArchTest.Rules for dependency rules.
+
+## Phase 1b-A: Identity (registration, login, access tokens)
+
+- Identity is its own project (FlexiCore.Identity), referenced by the Api; it must not depend on the Api, the migration runner or EF Core (architecture tests enforce this). Data access is plain Npgsql.
+- identity.users, identity.refresh_sessions and audit.events are global (not tenant-scoped). The Phase 1c "every table has RLS" guard needs an explicit allowlist for them. identity.refresh_sessions exists in migration 0002 but nothing uses it until Phase 1b-B.
+- Passwords: framework PasswordHasher (PBKDF2, V3 format, HMAC-SHA512), 210,000 iterations by default, minimum 100,000 enforced at startup (Identity:Pbkdf2Iterations). Outdated hashes are re-hashed on successful login.
+- Password policy: 12-128 characters (Unicode characters), no composition rules, and the password must not contain the email local part. The local-part check applies only when the local part has 4 or more characters.
+- Email uniqueness is enforced on email_normalized (trimmed, invariant-lowercase, application-side; no citext extension).
+- Access token: HS256 JWT, 15 minutes, 30 second clock skew, issuer and audience validated, algorithm pinned, claims sub and jti only. The `sid` claim and per-request session checks arrive in Phase 1b-B.
+- Jwt:SigningKey: base64, at least 32 bytes, at least 16 distinct byte values; read from user-secrets in Development and from the Jwt__SigningKey environment variable elsewhere. The host does not start without a valid key.
+- Registration:Enabled defaults to true in Development and false everywhere else unless set explicitly. When disabled, POST /api/v1/auth/register returns 403.
+- Failed logins (unknown email, wrong password, inactive account) return one fixed 401 body. Unknown emails still pay a dummy hash verification.
+- Audit: append-only for the app role (INSERT and SELECT only; a test proves UPDATE, DELETE and TRUNCATE are refused). 1b-A records register and login events; metadata never contains secrets.
+- Known limitation: with no email verification yet, register answers "email already in use", which reveals registered emails. The fix arrives with email verification.
+- Not in 1b-A: refresh tokens, logout, rate limiting, login throttling and lockout (Phase 1b-B).
