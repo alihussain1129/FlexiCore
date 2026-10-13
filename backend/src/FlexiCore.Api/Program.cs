@@ -1,6 +1,7 @@
 using FlexiCore.Api.Health;
 using FlexiCore.Api.Observability;
 using FlexiCore.Identity;
+using FlexiCore.Tenancy;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Npgsql;
 
@@ -21,6 +22,7 @@ builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(connectionString));
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
 builder.Services.AddIdentityModule(builder.Configuration, builder.Environment);
+builder.Services.AddTenancyModule();
 builder.Services.AddHealthChecks()
     .AddCheck<PostgresHealthCheck>("postgres", tags: ["ready"]);
 

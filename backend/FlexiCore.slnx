@@ -4,6 +4,7 @@
     <Project Path="src/FlexiCore.Identity/FlexiCore.Identity.csproj" />
     <Project Path="src/FlexiCore.Migrations/FlexiCore.Migrations.csproj" />
     <Project Path="src/FlexiCore.SharedKernel/FlexiCore.SharedKernel.csproj" />
+    <Project Path="src/FlexiCore.Tenancy/FlexiCore.Tenancy.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/FlexiCore.ArchitectureTests/FlexiCore.ArchitectureTests.csproj" />

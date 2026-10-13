@@ -15,6 +15,7 @@
   <ItemGroup>
     <ProjectReference Include="..\FlexiCore.Identity\FlexiCore.Identity.csproj" />
     <ProjectReference Include="..\FlexiCore.SharedKernel\FlexiCore.SharedKernel.csproj" />
+    <ProjectReference Include="..\FlexiCore.Tenancy\FlexiCore.Tenancy.csproj" />
   </ItemGroup>
 
 </Project>
