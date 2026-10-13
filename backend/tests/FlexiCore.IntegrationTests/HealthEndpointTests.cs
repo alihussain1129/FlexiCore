@@ -2,18 +2,21 @@ using System.Net;
 using FlexiCore.IntegrationTests.Infrastructure;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 
 namespace FlexiCore.IntegrationTests;
 
 [Collection("postgres")]
 public sealed class HealthEndpointTests(PostgresFixture postgres)
 {
-    // The API reads its connection string at startup, so it is supplied through the environment
-    // (which overrides user-secrets). Tests in this collection run sequentially, so this is safe.
-    private static WebApplicationFactory<Program> CreateFactory(string connectionString)
+    // Each test host receives isolated configuration; no process-wide environment mutation.
+    private static TestApiFactory CreateFactory(string connectionString)
     {
-        Environment.SetEnvironmentVariable("ConnectionStrings__Default", connectionString);
-        return new WebApplicationFactory<Program>().WithWebHostBuilder(b => b.UseEnvironment("Testing"));
+        return new TestApiFactory(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:Default"] = connectionString,
+            ["Jwt:SigningKey"] = TestSecrets.SigningKeyBase64
+        });
     }
 
     private const string UnreachableDb = "Host=127.0.0.1;Port=1;Database=x;Username=u;Password=p;Timeout=2";
@@ -67,3 +70,5 @@ public sealed class HealthEndpointTests(PostgresFixture postgres)
         Assert.DoesNotContain("<", replaced);
     }
 }
+
+

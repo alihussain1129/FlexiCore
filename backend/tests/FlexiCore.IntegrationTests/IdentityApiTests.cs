@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Net;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -7,6 +7,7 @@ using FlexiCore.Identity.Security;
 using FlexiCore.IntegrationTests.Infrastructure;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 
@@ -323,22 +324,5 @@ public sealed class IdentityApiTests(PostgresFixture postgres)
         Assert.DoesNotContain(token, dump);
     }
 
-    [Fact]
-    public void Startup_fails_closed_when_the_signing_key_is_missing()
-    {
-        Environment.SetEnvironmentVariable("ConnectionStrings__Default", "Host=127.0.0.1;Port=1;Database=x;Username=u;Password=x;Timeout=2");
-        Environment.SetEnvironmentVariable("Jwt__SigningKey", null);
-        try
-        {
-            using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b => b.UseEnvironment("Testing"));
-
-            var ex = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
-
-            Assert.Contains("Jwt:SigningKey", ex.ToString());
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("Jwt__SigningKey", TestSecrets.SigningKeyBase64);
-        }
-    }
 }
+

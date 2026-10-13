@@ -1,4 +1,4 @@
-using Npgsql;
+﻿using Npgsql;
 using Testcontainers.PostgreSql;
 
 namespace FlexiCore.IntegrationTests.Infrastructure;
@@ -30,6 +30,7 @@ public sealed class PostgresFixture : IAsyncLifetime
     public async Task<TestDatabase> CreateDatabaseAsync()
     {
         var name = "t_" + Guid.NewGuid().ToString("N");
+
         // CREATE DATABASE cannot share a transaction, so each statement is its own command.
         await ExecuteAsAdminAsync(
             $"create database \"{name}\" owner flexicore_owner",
@@ -42,16 +43,21 @@ public sealed class PostgresFixture : IAsyncLifetime
             Database = name,
             Username = user,
             Password = password,
-            Timeout = 5
+            Timeout = 5,
+            Pooling = false
         }.ConnectionString;
 
-        return new TestDatabase(name, Build("flexicore_owner", OwnerPassword), Build("flexicore_app", AppPassword));
+        return new TestDatabase(
+            name,
+            Build("flexicore_owner", OwnerPassword),
+            Build("flexicore_app", AppPassword));
     }
 
     private async Task ExecuteAsAdminAsync(params string[] statements)
     {
         await using var conn = new NpgsqlConnection(_container.GetConnectionString());
         await conn.OpenAsync();
+
         foreach (var sql in statements)
         {
             await using var cmd = new NpgsqlCommand(sql, conn);

@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 
 namespace FlexiCore.IntegrationTests.Infrastructure;
 
@@ -34,16 +35,16 @@ public sealed class IdentityTestApp : IAsyncDisposable
         var db = await postgres.CreateDatabaseAsync();
         await new MigrationRunner(db.OwnerConnectionString).RunAsync();
 
-        Environment.SetEnvironmentVariable("ConnectionStrings__Default", db.AppConnectionString);
-        Environment.SetEnvironmentVariable("Jwt__SigningKey", TestSecrets.SigningKeyBase64);
-        Environment.SetEnvironmentVariable("Registration__Enabled", registrationEnabled);
-        Environment.SetEnvironmentVariable("Identity__RateLimit__PermitPerMinute", rateLimitPerMinute);
+        var factory = new TestApiFactory(
+            new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:Default"] = db.AppConnectionString,
+                ["Jwt:SigningKey"] = TestSecrets.SigningKeyBase64,
+                ["Registration:Enabled"] = registrationEnabled,
+                ["Identity:RateLimit:PermitPerMinute"] = rateLimitPerMinute
+            },
+            configureServices);
 
-        var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
-        {
-            b.UseEnvironment("Testing");
-            if (configureServices is not null) b.ConfigureTestServices(configureServices);
-        });
         return new IdentityTestApp(db, factory);
     }
 
@@ -87,3 +88,5 @@ public sealed class IdentityTestApp : IAsyncDisposable
         await _factory.DisposeAsync();
     }
 }
+
+

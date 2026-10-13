@@ -484,3 +484,6 @@ $RECYCLE.BIN/
 # FlexiCore: local secrets, never commit
 .env
 
+
+*.bak
+integration-test-failures.txt
