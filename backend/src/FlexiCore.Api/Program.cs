@@ -47,6 +47,7 @@ app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => fa
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = c => c.Tags.Contains("ready") });
 
 app.MapIdentityEndpoints();
+app.MapTenancyEndpoints();
 
 app.Run();
 

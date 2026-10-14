@@ -62,3 +62,12 @@ xUnit v2 (from the template), Testcontainers.PostgreSql for real-database tests,
 - Audit actions added: auth.refresh (success/failure with reason), auth.logout, auth.session.revoked (reuse_detected, user_inactive, logout), auth.lockout (denied), auth.login denied/account_locked. State changes and their audit rows commit in one transaction. Metadata holds ids and reasons only.
 - Logging: nothing in FlexiCore.Identity logs, HttpLogging stays off, and IdentityModel ShowPII is forced off. An architecture test fails if Identity ever depends on Microsoft.Extensions.Logging, so adding logging there needs a redaction review first. An integration test captures all log levels and asserts that no password, access token, refresh token or Authorization value appears.
 - Not done: purge of expired or revoked refresh_sessions rows (the app role cannot delete), logout-all, device labels, email verification, tenant isolation (Phase 1c).
+## Phase 2b-C1: first tenant-aware API endpoints
+
+- Five endpoints: POST and GET /api/v1/organizations, POST /api/v1/organizations/{id}/companies, GET /api/v1/companies, GET /api/v1/companies/{id}. All require a valid session.
+- The caller is taken only from the validated access token's sub claim. No user or tenant identifier is accepted from a request body, header or query string. app.company_id is not used yet; company-scoped endpoints will select the company through the route and validate membership.
+- Organization and company creation call the SECURITY DEFINER functions from migration 0005. The tables are not forced under row-level security because those functions rely on owner bypass; flexicore_app is not an owner and has no insert rights on them.
+- Error mapping: SQLSTATE 42501 becomes a generic 403 (identical for "not allowed" and "organization does not exist"), 23505 becomes 409, 23514 becomes 400, 28000 becomes 401. A company the caller cannot see is a 404, identical to a company that does not exist.
+- Input rules mirror the database CHECK constraints (name 1-160 characters without control characters, slug 3-80, industry key 2-64) so callers get 400 validation problems.
+- Lists are capped at 100 entries, ordered by name then id. Real pagination comes when lists can grow large.
+- Known gaps, planned for 2b-C2: no audit events for organization or company creation; no per-user cap on organization creation (needs a migration); no rate limit on these endpoints; a duplicate organization slug reveals that the slug exists, the same limitation as duplicate email at registration.
