@@ -35,7 +35,7 @@ public sealed class TenantConnectionFactory : ITenantConnectionFactory
         var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
         try
         {
-            var transaction = await connection.BeginTransactionAsync(cancellationToken);
+            var transaction = await connection.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken);
             try
             {
                 await using var command = new NpgsqlCommand(SetContextSql, connection, transaction);
