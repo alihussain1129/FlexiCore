@@ -57,6 +57,19 @@ public sealed class LicenseVerifier
 
     public LicenseVerificationResult Verify(ReadOnlyMemory<byte> file)
     {
+        try
+        {
+            return VerifyCore(file);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // Bad input must never surface as an exception; anything unexpected is treated as a malformed file.
+            return Fail(LicenseStatus.Malformed);
+        }
+    }
+
+    private LicenseVerificationResult VerifyCore(ReadOnlyMemory<byte> file)
+    {
         if (file.Length > LicenseLimits.MaxFileBytes) return Fail(LicenseStatus.FileTooLarge);
         if (_keys.Count == 0) return Fail(LicenseStatus.NoTrustedKeys);
         if (file.IsEmpty) return Fail(LicenseStatus.Malformed);
@@ -144,7 +157,7 @@ public sealed class LicenseVerifier
 
             if (expiresAt is null || now <= expiresAt.Value)
                 return new LicenseVerificationResult(LicenseStatus.Valid, payload);
-            if (now <= expiresAt.Value.AddDays(graceDays))
+            if (now <= GraceEnd(expiresAt.Value, graceDays))
                 return new LicenseVerificationResult(LicenseStatus.ValidInGrace, payload);
             return Fail(LicenseStatus.Expired);
         }
@@ -185,6 +198,12 @@ public sealed class LicenseVerifier
     }
 
     private static LicenseVerificationResult Fail(LicenseStatus status) => new(status, null);
+
+    /// <summary>Last instant of the grace period. Clamps at the maximum date instead of overflowing.</summary>
+    public static DateTimeOffset GraceEnd(DateTimeOffset expiresAt, int graceDays) =>
+        expiresAt > DateTimeOffset.MaxValue.AddDays(-graceDays)
+            ? DateTimeOffset.MaxValue
+            : expiresAt.AddDays(graceDays);
 
     private static bool TryReadProperties(JsonElement root, string[] allowed, out Dictionary<string, JsonElement> props)
     {
