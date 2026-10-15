@@ -34,7 +34,7 @@ public sealed class UserStore(NpgsqlDataSource dataSource, AuditWriter audit)
     public async Task<Guid?> TryCreateAsync(string email, string normalizedEmail, string passwordHash, string? correlationId, CancellationToken ct)
     {
         await using var connection = await dataSource.OpenConnectionAsync(ct);
-        await using var transaction = await connection.BeginTransactionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, ct);
         try
         {
             Guid id;
@@ -69,7 +69,7 @@ public sealed class UserStore(NpgsqlDataSource dataSource, AuditWriter audit)
     public async Task<bool> RegisterFailedLoginAsync(Guid userId, int maxAttempts, int lockMinutes, string? correlationId, CancellationToken ct)
     {
         await using var connection = await dataSource.OpenConnectionAsync(ct);
-        await using var transaction = await connection.BeginTransactionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, ct);
 
         int count;
         await using (var update = new NpgsqlCommand(

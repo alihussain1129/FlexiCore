@@ -37,7 +37,7 @@ public sealed class RefreshSessionStore(NpgsqlDataSource dataSource, AuditWriter
     {
         var familyId = Guid.NewGuid();
         await using var connection = await dataSource.OpenConnectionAsync(ct);
-        await using var transaction = await connection.BeginTransactionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, ct);
 
         await using (var update = new NpgsqlCommand(
             "update identity.users set last_login_at = now(), password_hash = coalesce(@hash, password_hash), " +
@@ -78,7 +78,7 @@ public sealed class RefreshSessionStore(NpgsqlDataSource dataSource, AuditWriter
         byte[] presentedHash, byte[] newHash, int refreshDays, string? correlationId, CancellationToken ct)
     {
         await using var connection = await dataSource.OpenConnectionAsync(ct);
-        await using var transaction = await connection.BeginTransactionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, ct);
 
         var found = await FindAsync(connection, transaction, presentedHash, ct);
         if (found is null)
@@ -160,7 +160,7 @@ public sealed class RefreshSessionStore(NpgsqlDataSource dataSource, AuditWriter
     public async Task LogoutAsync(byte[] presentedHash, string? correlationId, CancellationToken ct)
     {
         await using var connection = await dataSource.OpenConnectionAsync(ct);
-        await using var transaction = await connection.BeginTransactionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, ct);
 
         var found = await FindAsync(connection, transaction, presentedHash, ct);
         if (found is null)

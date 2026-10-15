@@ -90,3 +90,18 @@ xUnit v2 (from the template), Testcontainers.PostgreSql for real-database tests,
 - Tenancy registers only a policy. The 429 status code and Retry-After header come from the global rejection handler registered by Identity; Tenancy must not replace it. There is no custom problem type for 429.
 - 429 rejections are not audited: they happen before the store, change nothing, and a flood would fill the audit table.
 - Known limitations: in-memory and per instance; a fixed window allows a burst across a window boundary; requests that fail validation (400) still count toward the limit.
+## Phases 2a, 2b-A and 2b-B (recorded retrospectively in 2b-D)
+
+These sections were not written when the phases were committed. This summary comes from the commit messages and the migrations; the detailed policy design is in migrations 0004 and 0005, which remain the source of truth.
+
+- 2a: tenancy schema (organizations, companies, branches, memberships) with PostgreSQL row-level security.
+- 2b-A: FlexiCore.Tenancy with TenantContext, TenantScope and TenantConnectionFactory. The context is set with transaction-local set_config, so it cannot leak to the next user of a pooled connection; tests cover pooled-connection leaks.
+- 2b-B: role-aware branch write policies (migration 0005 replaced the branches_company_isolation policy) and the SECURITY DEFINER functions tenancy.create_organization and tenancy.create_company.
+
+## Phase 2b-D: transaction isolation and session-race tests
+
+- Both locking designs (refresh/logout re-reading the session after the family advisory lock, and the organization cap counting after the per-user advisory lock) need READ COMMITTED semantics. A probe showed that Npgsql starts a transaction with no isolation level at READ COMMITTED even when the database default is repeatable read, so the explicit pins do not change behaviour today. They state the requirement in code. Pinned: login, rotate and logout in RefreshSessionStore, TenantConnectionFactory, and both UserStore transactions (registration and the failed-login counter).
+- Tests flip the database default to repeatable read and check that session ordering, the organization cap and failed-login counting still hold. They pass with or without the pins (confirmed for the UserStore pin; the probe explains why), so they show robustness to the default, not that each pin is necessary.
+- Deterministic tests hold the family advisory lock from a test connection, queue refresh and logout in a chosen order (observed in pg_locks), then release it. Both orders must leave no usable token.
+- audit.events has no foreign keys on purpose (migration 0003). A test guards this, and a refusal row can be written for an actor that does not exist.
+- The intermittent failure of A_logout_racing_a_refresh_never_leaves_a_usable_token_behind (once, in a full run) remains unexplained. A sibling test now asserts the logout status over 25 iterations and dumps session and audit state on failure.
