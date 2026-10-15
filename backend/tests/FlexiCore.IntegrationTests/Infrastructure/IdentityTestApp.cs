@@ -30,7 +30,7 @@ public sealed class IdentityTestApp : IAsyncDisposable
     /// <param name="configureServices">Optional test-only service overrides (for example a log-capturing provider).</param>
     public static async Task<IdentityTestApp> StartAsync(
         PostgresFixture postgres, string? registrationEnabled = "true", string rateLimitPerMinute = "100000",
-        Action<IServiceCollection>? configureServices = null)
+        Action<IServiceCollection>? configureServices = null, string tenancyCreateLimitPerMinute = "100000")
     {
         var db = await postgres.CreateDatabaseAsync();
         await new MigrationRunner(db.OwnerConnectionString).RunAsync();
@@ -41,7 +41,8 @@ public sealed class IdentityTestApp : IAsyncDisposable
                 ["ConnectionStrings:Default"] = db.AppConnectionString,
                 ["Jwt:SigningKey"] = TestSecrets.SigningKeyBase64,
                 ["Registration:Enabled"] = registrationEnabled,
-                ["Identity:RateLimit:PermitPerMinute"] = rateLimitPerMinute
+                ["Identity:RateLimit:PermitPerMinute"] = rateLimitPerMinute,
+                ["Tenancy:RateLimit:CreatePermitPerMinute"] = tenancyCreateLimitPerMinute
             },
             configureServices);
 

@@ -82,3 +82,11 @@ xUnit v2 (from the template), Testcontainers.PostgreSql for real-database tests,
 - TenantContext carries an optional CorrelationId, set into the transaction as app.correlation_id so functions can stamp audit rows. FlexiCore.Tenancy now references SharedKernel to read the request correlation id.
 - TenancyAuditWriter deliberately duplicates the single insert from Identity's AuditWriter because Tenancy must not depend on Identity. Move the writer to a shared project when a third module needs it.
 - Still open for 2b-C3: rate limiting on the creation endpoints.
+## Phase 2b-C3: rate limit on creation endpoints
+
+- Policy `tenancy-create`: built-in ASP.NET Core fixed window of 1 minute, no queue, applied only to POST /api/v1/organizations and POST /api/v1/organizations/{id}/companies. Both share one window per user. Reads are not limited.
+- Partition: `user:<sub>` for authenticated callers, `ip:<address>` otherwise, so the limit is fair behind a shared proxy IP. Setting: Tenancy:RateLimit:CreatePermitPerMinute, default 10, validated to 1..1000000 (TenancySettings; an invalid value fails at startup).
+- The limiter now runs after UseAuthentication (it must, to read the user). Identity's per-IP policy therefore also runs after authentication: a request that carries a bearer token has the token and session validated before it can be answered with 429. Register and login carry no token and are unaffected.
+- Tenancy registers only a policy. The 429 status code and Retry-After header come from the global rejection handler registered by Identity; Tenancy must not replace it. There is no custom problem type for 429.
+- 429 rejections are not audited: they happen before the store, change nothing, and a flood would fill the audit table.
+- Known limitations: in-memory and per instance; a fixed window allows a burst across a window boundary; requests that fail validation (400) still count toward the limit.

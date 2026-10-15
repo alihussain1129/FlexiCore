@@ -32,8 +32,10 @@ app.UseMiddleware<CorrelationIdMiddleware>();
 // RFC 9457 problem details; unhandled exceptions produce a generic 500 with no stack trace or exception text.
 app.UseExceptionHandler();
 app.UseStatusCodePages();
-app.UseRateLimiter();
 app.UseAuthentication();
+// After authentication so per-user policies can read the caller; before authorization.
+app.UseRateLimiter();
+// After authentication so per-user policies can read the caller; before authorization.
 app.UseAuthorization();
 
 if (app.Environment.IsDevelopment())

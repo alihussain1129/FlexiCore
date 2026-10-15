@@ -4,6 +4,7 @@ using FlexiCore.SharedKernel;
 using FlexiCore.Tenancy.Data;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
 
 namespace FlexiCore.Tenancy.Endpoints;
@@ -23,9 +24,9 @@ internal static class TenancyEndpoints
     public static void Map(IEndpointRouteBuilder endpoints)
     {
         var organizations = endpoints.MapGroup("/api/v1/organizations").RequireAuthorization();
-        organizations.MapPost("/", CreateOrganizationAsync);
+        organizations.MapPost("/", CreateOrganizationAsync).RequireRateLimiting(TenancyModule.CreateRateLimitPolicy);
         organizations.MapGet("/", ListOrganizationsAsync);
-        organizations.MapPost("/{organizationId:guid}/companies", CreateCompanyAsync);
+        organizations.MapPost("/{organizationId:guid}/companies", CreateCompanyAsync).RequireRateLimiting(TenancyModule.CreateRateLimitPolicy);
 
         var companies = endpoints.MapGroup("/api/v1/companies").RequireAuthorization();
         companies.MapGet("/", ListCompaniesAsync);
