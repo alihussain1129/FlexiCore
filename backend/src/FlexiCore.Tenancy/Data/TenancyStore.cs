@@ -2,11 +2,13 @@ using Npgsql;
 
 namespace FlexiCore.Tenancy.Data;
 
-public enum CreateOutcome { Created, Forbidden, Conflict, Invalid, Unauthenticated, QuotaExceeded }
+public enum CreateOutcome { Created, Forbidden, Conflict, Invalid, Unauthenticated, QuotaExceeded, LastOwner }
 
 public readonly record struct CreateResult(CreateOutcome Outcome, Guid? Id = null);
 
 public sealed record OrganizationSummary(Guid Id, string Name, string Slug, string Role);
+
+public sealed record MemberSummary(Guid UserId, string Email, string Role, string Status, DateTimeOffset JoinedAt);
 
 public sealed record CompanySummary(
     Guid Id, Guid OrganizationId, string Name, string Slug, string IndustryKey, string Role);
@@ -35,7 +37,9 @@ public sealed class TenancyStore
         _audit = audit;
     }
 
-    private sealed record AuditTarget(string Action, string TargetType, string? TargetId, string Slug);
+    private sealed record AuditTarget(
+        string Action, string TargetType, string? TargetId, string Slug,
+        string MetadataKey = "slug", string ConflictReason = "duplicate_slug");
 
     public Task<CreateResult> CreateOrganizationAsync(
         Guid userId, string name, string slug, string? correlationId, CancellationToken ct) =>
@@ -55,6 +59,61 @@ public sealed class TenancyStore
             command.Parameters.AddWithValue("slug", slug);
             command.Parameters.AddWithValue("industry_key", industryKey);
         }, new AuditTarget("tenancy.company.create", "organization", organizationId.ToString(), slug), ct);
+
+    public Task<CreateResult> AddMemberAsync(
+        Guid userId, Guid organizationId, string normalizedEmail, string role, string? correlationId, CancellationToken ct) =>
+        CreateAsync(userId, correlationId, "SELECT tenancy.add_organization_member(@organization_id, @email, @role)", command =>
+        {
+            command.Parameters.AddWithValue("organization_id", organizationId);
+            command.Parameters.AddWithValue("email", normalizedEmail);
+            command.Parameters.AddWithValue("role", role);
+        }, new AuditTarget("tenancy.member.add", "organization", organizationId.ToString(), role,
+            MetadataKey: "role", ConflictReason: "already_member"), ct);
+
+    public Task<CreateResult> ChangeMemberRoleAsync(
+        Guid userId, Guid organizationId, Guid targetUserId, string role, string? correlationId, CancellationToken ct) =>
+        CreateAsync(userId, correlationId, "SELECT tenancy.change_organization_member_role(@organization_id, @target, @role)", command =>
+        {
+            command.Parameters.AddWithValue("organization_id", organizationId);
+            command.Parameters.AddWithValue("target", targetUserId);
+            command.Parameters.AddWithValue("role", role);
+        }, new AuditTarget("tenancy.member.role_change", "organization", organizationId.ToString(), role, MetadataKey: "role"), ct);
+
+    public Task<CreateResult> RemoveMemberAsync(
+        Guid userId, Guid organizationId, Guid targetUserId, string? correlationId, CancellationToken ct) =>
+        CreateAsync(userId, correlationId, "SELECT tenancy.remove_organization_member(@organization_id, @target)", command =>
+        {
+            command.Parameters.AddWithValue("organization_id", organizationId);
+            command.Parameters.AddWithValue("target", targetUserId);
+        }, new AuditTarget("tenancy.member.remove", "organization", organizationId.ToString(), targetUserId.ToString(), MetadataKey: "member_user_id"), ct);
+
+    /// <summary>Null when the caller may not list this organization (not a member, or not an owner or admin).</summary>
+    public async Task<IReadOnlyList<MemberSummary>?> ListMembersAsync(Guid userId, Guid organizationId, CancellationToken ct)
+    {
+        try
+        {
+            await using var scope = await _factory.OpenAsync(TenantContext.For(userId), ct);
+            await using var command = new NpgsqlCommand(
+                "SELECT member_user_id, member_email, member_role, member_status, joined_at " +
+                "FROM tenancy.list_organization_members(@organization_id)", scope.Connection, scope.Transaction);
+            command.Parameters.AddWithValue("organization_id", organizationId);
+
+            var list = new List<MemberSummary>();
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                list.Add(new MemberSummary(
+                    reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3),
+                    reader.GetFieldValue<DateTimeOffset>(4)));
+            }
+
+            return list;
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.InsufficientPrivilege)
+        {
+            return null;
+        }
+    }
 
     public async Task<IReadOnlyList<OrganizationSummary>> ListOrganizationsAsync(Guid userId, CancellationToken ct)
     {
@@ -130,7 +189,11 @@ public sealed class TenancyStore
             target.TargetType,
             target.TargetId,
             correlationId,
-            new Dictionary<string, string> { ["slug"] = target.Slug, ["reason"] = Reason(refused) }), ct);
+            new Dictionary<string, string>
+            {
+                [target.MetadataKey] = target.Slug,
+                ["reason"] = refused == CreateOutcome.Conflict ? target.ConflictReason : Reason(refused)
+            }), ct);
 
         return new CreateResult(refused);
     }
@@ -142,13 +205,14 @@ public sealed class TenancyStore
         PostgresErrorCodes.CheckViolation => CreateOutcome.Invalid,
         PostgresErrorCodes.InvalidAuthorizationSpecification => CreateOutcome.Unauthenticated,
         "53400" => CreateOutcome.QuotaExceeded, // configuration_limit_exceeded, raised by the organization cap
+        "55000" => CreateOutcome.LastOwner, // object_not_in_prerequisite_state, raised by the last-owner guard
         _ => null
     };
 
     // The audit table only accepts success, failure and denied.
     private static string AuditOutcome(CreateOutcome outcome) => outcome switch
     {
-        CreateOutcome.Forbidden or CreateOutcome.QuotaExceeded or CreateOutcome.Unauthenticated => "denied",
+        CreateOutcome.Forbidden or CreateOutcome.QuotaExceeded or CreateOutcome.Unauthenticated or CreateOutcome.LastOwner => "denied",
         _ => "failure"
     };
 
@@ -156,6 +220,7 @@ public sealed class TenancyStore
     {
         CreateOutcome.Forbidden => "not_permitted",
         CreateOutcome.QuotaExceeded => "limit_reached",
+        CreateOutcome.LastOwner => "last_owner",
         CreateOutcome.Unauthenticated => "no_active_user",
         CreateOutcome.Conflict => "duplicate_slug",
         _ => "invalid_input"

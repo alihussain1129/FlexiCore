@@ -105,3 +105,23 @@ These sections were not written when the phases were committed. This summary com
 - Deterministic tests hold the family advisory lock from a test connection, queue refresh and logout in a chosen order (observed in pg_locks), then release it. Both orders must leave no usable token.
 - audit.events has no foreign keys on purpose (migration 0003). A test guards this, and a refusal row can be written for an actor that does not exist.
 - The intermittent failure of A_logout_racing_a_refresh_never_leaves_a_usable_token_behind (once, in a full run) remains unexplained. A sibling test now asserts the logout status over 25 iterations and dumps session and audit state on failure.
+## Phase 2c-1: list and add organization members
+
+- Migration 0007 adds tenancy.list_organization_members and tenancy.add_organization_member, the same pattern as 0006: SECURITY DEFINER, pinned search_path, held by the owner role, executable only by flexicore_app, success audited inside the function.
+- Listing is for an active owner or admin of an active organization (otherwise 42501). It returns at most 500 members ordered by creation time then user id.
+- Adding: owners may add any role, admins may add only the member role. The target is found by normalized email among active users. An unknown or inactive address raises the same 42501 as a permission failure, so the response does not reveal whether an address is registered. A duplicate raises 23505, an invalid role 23514. Success is audited as tenancy.member.add with member_user_id and role in metadata.
+- Tenancy applies Trim().ToLowerInvariant() to the email inline, because Tenancy must not reference Identity. This duplicates Identity EmailRules.Normalize; see the pin test noted in 2c-3.
+
+## Phase 2c-2: change role and remove member
+
+- Migration 0008 adds tenancy.change_organization_member_role (owner only) and tenancy.remove_organization_member (owners remove anyone, admins remove plain members, anyone may remove themselves). A target that is not a member of the organization raises the same 42501 as a permission failure.
+- Last-owner guard: demoting or removing an owner raises 55000 when the organization has one active owner or fewer, including an owner removing themselves. Both functions take a per-organization advisory lock (key tenancy.members:<organization id>) before checking, so two simultaneous changes cannot both pass the count. The count runs after the lock in a later statement, so it relies on READ COMMITTED, as recorded in 2b-D.
+- Removing a member deletes their company memberships first (company_memberships references the organization membership); the number removed is recorded in metadata.company_memberships_removed.
+- Successes are audited as tenancy.member.role_change (metadata includes from_role and role) and tenancy.member.remove.
+- Routes: GET /api/v1/organizations/{id}/members, POST /api/v1/organizations/{id}/members, PUT /api/v1/organizations/{id}/members/{userId}/role, DELETE /api/v1/organizations/{id}/members/{userId}. The member list is not rate limited. Add, change role and remove use the tenancy-create policy from 2b-C3, so they share one window per user with organization and company creation.
+- Known limitation: the guard fires whenever the target's role is owner, but it counts only active owners. Removing or demoting a non-active owner membership is therefore also refused while only one active owner exists.
+## Phase 2c-3: pin test for email normalization
+
+- Tenancy normalizes member emails in FlexiCore.Tenancy.MemberEmail.Normalize, which repeats Identity EmailRules.Normalize (trim, then invariant lowercase) because Tenancy must not reference Identity.
+- EmailNormalizationPinTests in the unit test project references both modules and asserts that the two functions agree on mixed case, surrounding whitespace, accented, dotted capital I and titlecase inputs. Removing the lowercase step from MemberEmail makes it fail (checked by hand).
+- If the normalization rule changes, change both functions and the pin test together.

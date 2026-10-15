@@ -11,6 +11,8 @@ namespace FlexiCore.Tenancy.Endpoints;
 
 public sealed record CreateOrganizationRequest(string? Name, string? Slug);
 public sealed record CreateCompanyRequest(string? Name, string? Slug, string? IndustryKey);
+public sealed record AddMemberRequest(string? Email, string? Role);
+public sealed record ChangeRoleRequest(string? Role);
 
 internal static class TenancyEndpoints
 {
@@ -26,6 +28,10 @@ internal static class TenancyEndpoints
         var organizations = endpoints.MapGroup("/api/v1/organizations").RequireAuthorization();
         organizations.MapPost("/", CreateOrganizationAsync).RequireRateLimiting(TenancyModule.CreateRateLimitPolicy);
         organizations.MapGet("/", ListOrganizationsAsync);
+        organizations.MapGet("/{organizationId:guid}/members", ListMembersAsync);
+        organizations.MapPut("/{organizationId:guid}/members/{userId:guid}/role", ChangeMemberRoleAsync).RequireRateLimiting(TenancyModule.CreateRateLimitPolicy);
+        organizations.MapDelete("/{organizationId:guid}/members/{userId:guid}", RemoveMemberAsync).RequireRateLimiting(TenancyModule.CreateRateLimitPolicy);
+        organizations.MapPost("/{organizationId:guid}/members", AddMemberAsync).RequireRateLimiting(TenancyModule.CreateRateLimitPolicy);
         organizations.MapPost("/{organizationId:guid}/companies", CreateCompanyAsync).RequireRateLimiting(TenancyModule.CreateRateLimitPolicy);
 
         var companies = endpoints.MapGroup("/api/v1/companies").RequireAuthorization();
@@ -104,6 +110,69 @@ internal static class TenancyEndpoints
         return company is null ? Results.NotFound() : Results.Ok(company);
     }
 
+    private static async Task<IResult> ListMembersAsync(
+        Guid organizationId, ClaimsPrincipal principal, TenancyStore store, CancellationToken ct)
+    {
+        if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
+
+        var members = await store.ListMembersAsync(userId, organizationId, ct);
+        return members is null ? Failure(CreateOutcome.Forbidden, "") : Results.Ok(members);
+    }
+
+    private static async Task<IResult> AddMemberAsync(
+        Guid organizationId, AddMemberRequest request, HttpContext http, ClaimsPrincipal principal,
+        TenancyStore store, CancellationToken ct)
+    {
+        if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
+
+        // Tenancy may not reference Identity, so MemberEmail repeats EmailRules.Normalize; a unit test pins the two together.
+        var email = FlexiCore.Tenancy.MemberEmail.Normalize(request.Email);
+        var role = request.Role?.Trim();
+        var errors = new Dictionary<string, string[]>();
+        if (string.IsNullOrEmpty(email) || email.Length < 3 || email.Length > 254 || !email.Contains('@'))
+        {
+            errors["email"] = ["A valid email address is required."];
+        }
+
+        if (role is not ("owner" or "admin" or "member"))
+        {
+            errors["role"] = ["Role must be owner, admin or member."];
+        }
+
+        if (errors.Count > 0) return Results.ValidationProblem(errors);
+
+        var result = await store.AddMemberAsync(userId, organizationId, email!, role!, CorrelationId(http), ct);
+        return result.Outcome == CreateOutcome.Created
+            ? Results.Json(new { userId = result.Id!.Value, role }, statusCode: StatusCodes.Status201Created)
+            : Failure(result.Outcome, "This user is already a member of this organization.");
+    }
+
+    private static async Task<IResult> ChangeMemberRoleAsync(
+        Guid organizationId, Guid userId, ChangeRoleRequest request, HttpContext http, ClaimsPrincipal principal,
+        TenancyStore store, CancellationToken ct)
+    {
+        if (!TryGetUserId(principal, out var callerId)) return Results.Unauthorized();
+
+        var role = request.Role?.Trim();
+        if (role is not ("owner" or "admin" or "member"))
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["role"] = ["Role must be owner, admin or member."] });
+        }
+
+        var result = await store.ChangeMemberRoleAsync(callerId, organizationId, userId, role, CorrelationId(http), ct);
+        return result.Outcome == CreateOutcome.Created ? Results.NoContent() : Failure(result.Outcome, "");
+    }
+
+    private static async Task<IResult> RemoveMemberAsync(
+        Guid organizationId, Guid userId, HttpContext http, ClaimsPrincipal principal,
+        TenancyStore store, CancellationToken ct)
+    {
+        if (!TryGetUserId(principal, out var callerId)) return Results.Unauthorized();
+
+        var result = await store.RemoveMemberAsync(callerId, organizationId, userId, CorrelationId(http), ct);
+        return result.Outcome == CreateOutcome.Created ? Results.NoContent() : Failure(result.Outcome, "");
+    }
+
     // The user comes only from the validated token. Nothing about identity is read from the request.
     private static bool TryGetUserId(ClaimsPrincipal principal, out Guid userId) =>
         Guid.TryParse(principal.FindFirst("sub")?.Value, out userId) && userId != Guid.Empty;
@@ -145,6 +214,11 @@ internal static class TenancyEndpoints
             title: "Limit reached",
             detail: "Your account has reached the maximum number of organizations it can own.",
             type: "urn:flexicore:problem:quota-exceeded"),
+        CreateOutcome.LastOwner => Results.Problem(
+            statusCode: StatusCodes.Status409Conflict,
+            title: "Last owner",
+            detail: "An organization must keep at least one active owner.",
+            type: "urn:flexicore:problem:last-owner"),
         CreateOutcome.Conflict => Results.Problem(
             statusCode: StatusCodes.Status409Conflict,
             title: "Already exists",
