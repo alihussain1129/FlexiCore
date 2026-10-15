@@ -71,3 +71,14 @@ xUnit v2 (from the template), Testcontainers.PostgreSql for real-database tests,
 - Input rules mirror the database CHECK constraints (name 1-160 characters without control characters, slug 3-80, industry key 2-64) so callers get 400 validation problems.
 - Lists are capped at 100 entries, ordered by name then id. Real pagination comes when lists can grow large.
 - Known gaps, planned for 2b-C2: no audit events for organization or company creation; no per-user cap on organization creation (needs a migration); no rate limit on these endpoints; a duplicate organization slug reveals that the slug exists, the same limitation as duplicate email at registration.
+## Phase 2b-C2: audit and organization cap
+
+- Migration 0006 replaces tenancy.create_organization and tenancy.create_company in place (CREATE OR REPLACE keeps owner and grants; 0005 is not edited).
+- Successful creations are audited inside the same database transaction by the functions (actions tenancy.organization.create and tenancy.company.create, outcome success), so an audit row cannot be skipped and cannot exist without the object it describes.
+- Refusals roll the transaction back, so the store audits them afterwards in a separate short transaction through TenancyAuditWriter. The audit table only accepts the outcomes success, failure and denied: forbidden, quota and no-active-user are denied; duplicate slug and invalid input are failure. The specific cause is in metadata.reason (not_permitted, limit_reached, no_active_user, duplicate_slug, invalid_input). Plain validation errors (400 before the store is reached) are not audited.
+- Company creation rows always target the parent organization (target_type organization), for successes and refusals; a success carries the new company id in metadata.company_id.
+- audit.events.tenant_id is left null; what it means will be decided with the first company-scoped audit reader.
+- Cap: a user may own at most 10 organizations (active owner memberships), a constant in the function. Changing it means a new migration. A per-user advisory lock serializes creations so simultaneous requests cannot both pass the check. The cap raises SQLSTATE 53400, mapped to 403 with type urn:flexicore:problem:quota-exceeded. There is no per-organization cap on companies yet.
+- TenantContext carries an optional CorrelationId, set into the transaction as app.correlation_id so functions can stamp audit rows. FlexiCore.Tenancy now references SharedKernel to read the request correlation id.
+- TenancyAuditWriter deliberately duplicates the single insert from Identity's AuditWriter because Tenancy must not depend on Identity. Move the writer to a shared project when a third module needs it.
+- Still open for 2b-C3: rate limiting on the creation endpoints.

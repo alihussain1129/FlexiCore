@@ -2,7 +2,7 @@ using Npgsql;
 
 namespace FlexiCore.Tenancy.Data;
 
-public enum CreateOutcome { Created, Forbidden, Conflict, Invalid, Unauthenticated }
+public enum CreateOutcome { Created, Forbidden, Conflict, Invalid, Unauthenticated, QuotaExceeded }
 
 public readonly record struct CreateResult(CreateOutcome Outcome, Guid? Id = null);
 
@@ -13,7 +13,8 @@ public sealed record CompanySummary(
 
 /// <summary>
 /// Tenancy reads and writes. Every call runs inside a TenantScope, so row-level security sees the caller.
-/// Organization and company creation go through the SECURITY DEFINER functions from migration 0005.
+/// Organization and company creation go through the SECURITY DEFINER functions, which audit successes
+/// in the same transaction. Refusals are audited here, after the rollback.
 /// </summary>
 public sealed class TenancyStore
 {
@@ -26,28 +27,34 @@ public sealed class TenancyStore
         "WHERE cm.user_id = @user_id AND cm.status = 'active'";
 
     private readonly ITenantConnectionFactory _factory;
+    private readonly TenancyAuditWriter _audit;
 
-    public TenancyStore(ITenantConnectionFactory factory)
+    public TenancyStore(ITenantConnectionFactory factory, TenancyAuditWriter audit)
     {
         _factory = factory;
+        _audit = audit;
     }
 
-    public Task<CreateResult> CreateOrganizationAsync(Guid userId, string name, string slug, CancellationToken ct) =>
-        CreateAsync(userId, "SELECT tenancy.create_organization(@name, @slug)", command =>
+    private sealed record AuditTarget(string Action, string TargetType, string? TargetId, string Slug);
+
+    public Task<CreateResult> CreateOrganizationAsync(
+        Guid userId, string name, string slug, string? correlationId, CancellationToken ct) =>
+        CreateAsync(userId, correlationId, "SELECT tenancy.create_organization(@name, @slug)", command =>
         {
             command.Parameters.AddWithValue("name", name);
             command.Parameters.AddWithValue("slug", slug);
-        }, ct);
+        }, new AuditTarget("tenancy.organization.create", "organization", null, slug), ct);
 
     public Task<CreateResult> CreateCompanyAsync(
-        Guid userId, Guid organizationId, string name, string slug, string industryKey, CancellationToken ct) =>
-        CreateAsync(userId, "SELECT tenancy.create_company(@organization_id, @name, @slug, @industry_key)", command =>
+        Guid userId, Guid organizationId, string name, string slug, string industryKey, string? correlationId,
+        CancellationToken ct) =>
+        CreateAsync(userId, correlationId, "SELECT tenancy.create_company(@organization_id, @name, @slug, @industry_key)", command =>
         {
             command.Parameters.AddWithValue("organization_id", organizationId);
             command.Parameters.AddWithValue("name", name);
             command.Parameters.AddWithValue("slug", slug);
             command.Parameters.AddWithValue("industry_key", industryKey);
-        }, ct);
+        }, new AuditTarget("tenancy.company.create", "organization", organizationId.ToString(), slug), ct);
 
     public async Task<IReadOnlyList<OrganizationSummary>> ListOrganizationsAsync(Guid userId, CancellationToken ct)
     {
@@ -96,11 +103,14 @@ public sealed class TenancyStore
     }
 
     private async Task<CreateResult> CreateAsync(
-        Guid userId, string sql, Action<NpgsqlCommand> bind, CancellationToken ct)
+        Guid userId, string? correlationId, string sql, Action<NpgsqlCommand> bind, AuditTarget target,
+        CancellationToken ct)
     {
+        CreateOutcome refused;
         try
         {
-            await using var scope = await _factory.OpenAsync(TenantContext.For(userId), ct);
+            await using var scope = await _factory.OpenAsync(
+                TenantContext.For(userId, correlationId: correlationId), ct);
             await using var command = new NpgsqlCommand(sql, scope.Connection, scope.Transaction);
             bind(command);
             var id = (Guid)(await command.ExecuteScalarAsync(ct))!;
@@ -109,9 +119,20 @@ public sealed class TenancyStore
         }
         catch (PostgresException ex) when (Classify(ex) is { } outcome)
         {
-            // The scope was disposed without committing, so the transaction is rolled back.
-            return new CreateResult(outcome);
+            refused = outcome;
         }
+
+        // The scope was disposed without committing, so nothing was created. Record the refusal on its own.
+        await _audit.WriteAsync(new TenancyAuditEvent(
+            target.Action,
+            AuditOutcome(refused),
+            userId,
+            target.TargetType,
+            target.TargetId,
+            correlationId,
+            new Dictionary<string, string> { ["slug"] = target.Slug, ["reason"] = Reason(refused) }), ct);
+
+        return new CreateResult(refused);
     }
 
     private static CreateOutcome? Classify(PostgresException ex) => ex.SqlState switch
@@ -120,7 +141,24 @@ public sealed class TenancyStore
         PostgresErrorCodes.UniqueViolation => CreateOutcome.Conflict,
         PostgresErrorCodes.CheckViolation => CreateOutcome.Invalid,
         PostgresErrorCodes.InvalidAuthorizationSpecification => CreateOutcome.Unauthenticated,
+        "53400" => CreateOutcome.QuotaExceeded, // configuration_limit_exceeded, raised by the organization cap
         _ => null
+    };
+
+    // The audit table only accepts success, failure and denied.
+    private static string AuditOutcome(CreateOutcome outcome) => outcome switch
+    {
+        CreateOutcome.Forbidden or CreateOutcome.QuotaExceeded or CreateOutcome.Unauthenticated => "denied",
+        _ => "failure"
+    };
+
+    private static string Reason(CreateOutcome outcome) => outcome switch
+    {
+        CreateOutcome.Forbidden => "not_permitted",
+        CreateOutcome.QuotaExceeded => "limit_reached",
+        CreateOutcome.Unauthenticated => "no_active_user",
+        CreateOutcome.Conflict => "duplicate_slug",
+        _ => "invalid_input"
     };
 
     private static async Task<List<CompanySummary>> ReadCompaniesAsync(NpgsqlCommand command, CancellationToken ct)

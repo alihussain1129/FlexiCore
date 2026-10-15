@@ -8,7 +8,7 @@ public interface ITenantConnectionFactory
 }
 
 /// <summary>
-/// Opens a transaction and sets app.user_id / app.company_id with
+/// Opens a transaction and sets app.user_id / app.company_id / app.correlation_id with
 /// set_config(..., is_local := true), so the values vanish at commit or
 /// rollback and can never leak to the next user of a pooled connection.
 /// </summary>
@@ -16,7 +16,8 @@ public sealed class TenantConnectionFactory : ITenantConnectionFactory
 {
     private const string SetContextSql =
         "SELECT set_config('app.user_id', @user_id, true), " +
-        "set_config('app.company_id', @company_id, true)";
+        "set_config('app.company_id', @company_id, true), " +
+        "set_config('app.correlation_id', @correlation_id, true)";
 
     private readonly NpgsqlDataSource _dataSource;
 
@@ -40,6 +41,7 @@ public sealed class TenantConnectionFactory : ITenantConnectionFactory
                 await using var command = new NpgsqlCommand(SetContextSql, connection, transaction);
                 command.Parameters.AddWithValue("user_id", context.UserId.ToString());
                 command.Parameters.AddWithValue("company_id", context.CompanyId?.ToString() ?? string.Empty);
+                command.Parameters.AddWithValue("correlation_id", context.CorrelationId ?? string.Empty);
                 await command.ExecuteNonQueryAsync(cancellationToken);
 
                 return new TenantScope(connection, transaction);

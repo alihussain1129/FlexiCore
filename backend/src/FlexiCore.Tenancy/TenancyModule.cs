@@ -12,6 +12,7 @@ public static class TenancyModule
     public static IServiceCollection AddTenancyModule(this IServiceCollection services)
     {
         services.TryAddSingleton<ITenantConnectionFactory, TenantConnectionFactory>();
+        services.TryAddSingleton<TenancyAuditWriter>();
         services.TryAddSingleton<TenancyStore>();
         return services;
     }

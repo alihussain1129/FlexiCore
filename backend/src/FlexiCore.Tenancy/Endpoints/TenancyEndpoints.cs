@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.RegularExpressions;
+using FlexiCore.SharedKernel;
 using FlexiCore.Tenancy.Data;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -32,7 +33,8 @@ internal static class TenancyEndpoints
     }
 
     private static async Task<IResult> CreateOrganizationAsync(
-        CreateOrganizationRequest request, ClaimsPrincipal principal, TenancyStore store, CancellationToken ct)
+        CreateOrganizationRequest request, HttpContext http, ClaimsPrincipal principal, TenancyStore store,
+        CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
 
@@ -43,7 +45,7 @@ internal static class TenancyEndpoints
         ValidateSlug(slug, errors);
         if (errors.Count > 0) return Results.ValidationProblem(errors);
 
-        var result = await store.CreateOrganizationAsync(userId, name!, slug!, ct);
+        var result = await store.CreateOrganizationAsync(userId, name!, slug!, CorrelationId(http), ct);
         return result.Outcome == CreateOutcome.Created
             ? Results.Json(new OrganizationSummary(result.Id!.Value, name!, slug!, "owner"),
                 statusCode: StatusCodes.Status201Created)
@@ -58,8 +60,8 @@ internal static class TenancyEndpoints
     }
 
     private static async Task<IResult> CreateCompanyAsync(
-        Guid organizationId, CreateCompanyRequest request, ClaimsPrincipal principal, TenancyStore store,
-        CancellationToken ct)
+        Guid organizationId, CreateCompanyRequest request, HttpContext http, ClaimsPrincipal principal,
+        TenancyStore store, CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
 
@@ -77,7 +79,8 @@ internal static class TenancyEndpoints
 
         if (errors.Count > 0) return Results.ValidationProblem(errors);
 
-        var result = await store.CreateCompanyAsync(userId, organizationId, name!, slug!, industryKey!, ct);
+        var result = await store.CreateCompanyAsync(
+            userId, organizationId, name!, slug!, industryKey!, CorrelationId(http), ct);
         return result.Outcome == CreateOutcome.Created
             ? Results.Json(new CompanySummary(result.Id!.Value, organizationId, name!, slug!, industryKey!, "owner"),
                 statusCode: StatusCodes.Status201Created)
@@ -103,6 +106,9 @@ internal static class TenancyEndpoints
     // The user comes only from the validated token. Nothing about identity is read from the request.
     private static bool TryGetUserId(ClaimsPrincipal principal, out Guid userId) =>
         Guid.TryParse(principal.FindFirst("sub")?.Value, out userId) && userId != Guid.Empty;
+
+    private static string? CorrelationId(HttpContext http) =>
+        http.Items.TryGetValue(CorrelationContext.ItemKey, out var value) ? value as string : null;
 
     private static void ValidateName(string? name, Dictionary<string, string[]> errors)
     {
@@ -133,6 +139,11 @@ internal static class TenancyEndpoints
             title: "Forbidden",
             detail: "You do not have permission to perform this action.",
             type: "urn:flexicore:problem:forbidden"),
+        CreateOutcome.QuotaExceeded => Results.Problem(
+            statusCode: StatusCodes.Status403Forbidden,
+            title: "Limit reached",
+            detail: "Your account has reached the maximum number of organizations it can own.",
+            type: "urn:flexicore:problem:quota-exceeded"),
         CreateOutcome.Conflict => Results.Problem(
             statusCode: StatusCodes.Status409Conflict,
             title: "Already exists",
