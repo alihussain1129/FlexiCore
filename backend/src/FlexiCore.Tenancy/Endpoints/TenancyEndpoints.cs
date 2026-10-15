@@ -11,6 +11,7 @@ namespace FlexiCore.Tenancy.Endpoints;
 
 public sealed record CreateOrganizationRequest(string? Name, string? Slug);
 public sealed record CreateCompanyRequest(string? Name, string? Slug, string? IndustryKey);
+public sealed record AddMemberRequest(string? Email, string? Role);
 
 internal static class TenancyEndpoints
 {
@@ -26,6 +27,8 @@ internal static class TenancyEndpoints
         var organizations = endpoints.MapGroup("/api/v1/organizations").RequireAuthorization();
         organizations.MapPost("/", CreateOrganizationAsync).RequireRateLimiting(TenancyModule.CreateRateLimitPolicy);
         organizations.MapGet("/", ListOrganizationsAsync);
+        organizations.MapGet("/{organizationId:guid}/members", ListMembersAsync);
+        organizations.MapPost("/{organizationId:guid}/members", AddMemberAsync).RequireRateLimiting(TenancyModule.CreateRateLimitPolicy);
         organizations.MapPost("/{organizationId:guid}/companies", CreateCompanyAsync).RequireRateLimiting(TenancyModule.CreateRateLimitPolicy);
 
         var companies = endpoints.MapGroup("/api/v1/companies").RequireAuthorization();
@@ -102,6 +105,43 @@ internal static class TenancyEndpoints
 
         var company = await store.GetCompanyAsync(userId, companyId, ct);
         return company is null ? Results.NotFound() : Results.Ok(company);
+    }
+
+    private static async Task<IResult> ListMembersAsync(
+        Guid organizationId, ClaimsPrincipal principal, TenancyStore store, CancellationToken ct)
+    {
+        if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
+
+        var members = await store.ListMembersAsync(userId, organizationId, ct);
+        return members is null ? Failure(CreateOutcome.Forbidden, "") : Results.Ok(members);
+    }
+
+    private static async Task<IResult> AddMemberAsync(
+        Guid organizationId, AddMemberRequest request, HttpContext http, ClaimsPrincipal principal,
+        TenancyStore store, CancellationToken ct)
+    {
+        if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
+
+        // Same rule as Identity EmailRules.Normalize. Tenancy may not reference Identity, so a test pins the two together.
+        var email = request.Email?.Trim().ToLowerInvariant();
+        var role = request.Role?.Trim();
+        var errors = new Dictionary<string, string[]>();
+        if (string.IsNullOrEmpty(email) || email.Length < 3 || email.Length > 254 || !email.Contains('@'))
+        {
+            errors["email"] = ["A valid email address is required."];
+        }
+
+        if (role is not ("owner" or "admin" or "member"))
+        {
+            errors["role"] = ["Role must be owner, admin or member."];
+        }
+
+        if (errors.Count > 0) return Results.ValidationProblem(errors);
+
+        var result = await store.AddMemberAsync(userId, organizationId, email!, role!, CorrelationId(http), ct);
+        return result.Outcome == CreateOutcome.Created
+            ? Results.Json(new { userId = result.Id!.Value, role }, statusCode: StatusCodes.Status201Created)
+            : Failure(result.Outcome, "This user is already a member of this organization.");
     }
 
     // The user comes only from the validated token. Nothing about identity is read from the request.
