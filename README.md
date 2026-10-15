@@ -5,7 +5,7 @@ Working name; branding is not final.
 
 ## Status
 
-Backend phases 1a to 2b-C are implemented; there is no client application yet. See `DECISIONS.md` for the reasoning behind each phase.
+Backend phases 1a to 2c are implemented; there is no client application yet. See `DECISIONS.md` for the reasoning behind each phase.
 
 **Implemented and tested (backend):**
 - API host with `/health/live` and `/health/ready` (readiness checks PostgreSQL), per-request correlation id, JSON console logging.
@@ -13,9 +13,10 @@ Backend phases 1a to 2b-C are implemented; there is no client application yet. S
 - Identity: registration, login, access tokens, rotating refresh tokens with reuse detection, logout, account lockout, per-IP rate limiting, session validation on every authenticated request, log redaction.
 - Append-only audit trail (`audit.events`).
 - Tenancy: organizations, companies, branches and memberships with PostgreSQL row-level security, a transaction-local tenant context, role-aware policies, and organization and company endpoints (create, list, get) with a cap of 10 owned organizations per user, audited successes and refusals, and a per-user creation rate limit.
+- Membership management: list, add, change role and remove organization members, with owner/admin rules, a last-owner guard and audited successes.
 - Unit, architecture and integration tests (integration tests run against a real PostgreSQL via Testcontainers).
 
-**Not implemented:** membership management endpoints, branch endpoints, any business module, licensing and activation, and the Flutter app.
+**Not implemented:** branch endpoints, any business module, licensing and activation, and the Flutter app.
 ## Prerequisites (Windows)
 
 .NET SDK 10.0.401 (see `global.json`), Docker Desktop (WSL2 backend), Git. Flutter is not needed until slice 1d.
