@@ -17,7 +17,7 @@ public sealed class LockoutIsolationTests(PostgresFixture postgres)
 
         Assert.True(responses.All(r => (int)r.StatusCode < 500),
             "statuses: " + string.Join(", ", responses.Select(r => (int)r.StatusCode)));
-        Assert.True((long)(await Sql.ScalarAsync(app.Db.OwnerConnectionString,
-            "select failed_login_count from identity.users"))! > 0);
+        Assert.True(Convert.ToInt64(await Sql.ScalarAsync(app.Db.OwnerConnectionString,
+            "select failed_login_count from identity.users")) > 0);
     }
 }
