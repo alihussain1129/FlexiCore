@@ -74,6 +74,9 @@ class ApiException implements Exception {
 
   /// Text safe to show a person.
   String get message {
+    if (isNetworkError) {
+      return 'Cannot reach the server. Check your connection and try again.';
+    }
     if (isRateLimited) {
       final wait = retryAfter?.inSeconds;
       return wait == null
