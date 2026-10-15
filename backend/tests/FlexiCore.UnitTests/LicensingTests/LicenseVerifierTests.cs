@@ -132,7 +132,7 @@ public class LicenseVerifierTests : IDisposable
         var r = Verifier().Verify(_signer.Build(Mod("'expiresAt':'2027-01-01T00:00:00Z'", "'expiresAt':'2026-05-01T00:00:00Z'")));
         Assert.Equal(LicenseStatus.Expired, r.Status);
         Assert.False(r.IsAccepted);
-        Assert.Null(r.Payload);
+        Assert.NotNull(r.Payload); // authentic but expired: details stay available for display, never for access
     }
 
     [Theory]

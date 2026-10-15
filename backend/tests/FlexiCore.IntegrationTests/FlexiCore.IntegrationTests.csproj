@@ -22,6 +22,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\FlexiCore.UnitTests\LicensingTests\LicenseTestKit.cs" Link="Licensing\LicenseTestKit.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\FlexiCore.Api\FlexiCore.Api.csproj" />
     <ProjectReference Include="..\..\src\FlexiCore.Identity\FlexiCore.Identity.csproj" />
     <ProjectReference Include="..\..\src\FlexiCore.Migrations\FlexiCore.Migrations.csproj" />

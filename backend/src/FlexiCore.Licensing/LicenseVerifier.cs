@@ -37,6 +37,9 @@ public sealed class LicenseVerifier
     private readonly Dictionary<string, byte[]> _keys = new(StringComparer.Ordinal);
     private readonly TimeProvider _time;
 
+    /// <summary>Number of trusted keys loaded. Zero means every verification fails closed with NoTrustedKeys.</summary>
+    public int TrustedKeyCount => _keys.Count;
+
     /// <exception cref="ArgumentException">A key id is invalid or duplicated, or a key is not a valid P-256 public key.</exception>
     public LicenseVerifier(IEnumerable<TrustedKey> trustedKeys, TimeProvider timeProvider)
     {
@@ -151,7 +154,10 @@ public sealed class LicenseVerifier
                 return Fail(LicenseStatus.WrongProduct);
 
             var now = _time.GetUtcNow();
-            if (now < notBefore) return Fail(LicenseStatus.NotYetValid);
+            if (now < notBefore)
+                return new LicenseVerificationResult(
+                    LicenseStatus.NotYetValid,
+                    new LicensePayload(licenseId, product, licensee, issuedAt, notBefore, expiresAt, graceDays, maxInstallations));
 
             var payload = new LicensePayload(licenseId, product, licensee, issuedAt, notBefore, expiresAt, graceDays, maxInstallations);
 
@@ -159,7 +165,7 @@ public sealed class LicenseVerifier
                 return new LicenseVerificationResult(LicenseStatus.Valid, payload);
             if (now <= GraceEnd(expiresAt.Value, graceDays))
                 return new LicenseVerificationResult(LicenseStatus.ValidInGrace, payload);
-            return Fail(LicenseStatus.Expired);
+            return new LicenseVerificationResult(LicenseStatus.Expired, payload);
         }
     }
 

@@ -1,4 +1,5 @@
 using FlexiCore.Api.Health;
+using FlexiCore.Api.Licensing;
 using FlexiCore.Api.Observability;
 using FlexiCore.Identity;
 using FlexiCore.Tenancy;
@@ -23,6 +24,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
 builder.Services.AddIdentityModule(builder.Configuration, builder.Environment);
 builder.Services.AddTenancyModule();
+builder.Services.AddLicensingModule(builder.Configuration);
 builder.Services.AddHealthChecks()
     .AddCheck<PostgresHealthCheck>("postgres", tags: ["ready"]);
 
@@ -50,6 +52,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = c => c
 
 app.MapIdentityEndpoints();
 app.MapTenancyEndpoints();
+app.MapLicenseEndpoints();
 
 app.Run();
 

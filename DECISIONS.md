@@ -125,3 +125,36 @@ These sections were not written when the phases were committed. This summary com
 - Tenancy normalizes member emails in FlexiCore.Tenancy.MemberEmail.Normalize, which repeats Identity EmailRules.Normalize (trim, then invariant lowercase) because Tenancy must not reference Identity.
 - EmailNormalizationPinTests in the unit test project references both modules and asserts that the two functions agree on mixed case, surrounding whitespace, accented, dotted capital I and titlecase inputs. Removing the lowercase step from MemberEmail makes it fail (checked by hand).
 - If the normalization rule changes, change both functions and the pin test together.
+## Phase 12b: license status and import (infrastructure only)
+
+- Scope: GET /api/v1/license/status and PUT /api/v1/license, a file-based license store, and Hosted versus Local mode. Nothing is enforced: no existing ERP endpoint checks the license, sign-in is unchanged, no local sessions exist, the Flutter client is unchanged, and there are no schema or migration changes.
+- Mode: Deployment:Mode is Hosted or Local. When absent or empty it is Hosted in every environment, so existing hosts and tests need no change. Any other explicit value stops startup. Local requires License:Directory as an absolute path. In Hosted mode no file is read, GET status returns state notApplicable, and PUT is not mapped (404).
+- Keys: in Local mode the verifier is built only from the production public keys embedded in the Licensing assembly. No configuration or environment setting can supply keys. No production public key exists yet, so a real Local deployment reports state unavailable (reason no_trusted_keys) and refuses every import with 503, and a warning is logged at startup. Missing keys never lead to accepting a license, and unavailable is kept apart from invalid.
+- Storage: one file, license.lic, holding the exact imported bytes. Writes go to a temporary file in the same directory and are moved over the old file, so a failed import leaves the previous license byte-for-byte unchanged. A license is fully verified before the store is touched. Status is re-evaluated against the clock on every read; no derived state is stored.
+- Import rules: only Valid and ValidInGrace licenses are accepted. A license whose issuedAt is older than the installed one is refused (409), identical bytes return 200 with replaced false, and an unreadable or unauthentic current file never blocks a valid import. Import has its own per-user rate limit (License:ImportPermitPerMinute, default 10) and the body is capped at 16 KB without buffering more than the cap.
+- Errors: RFC 9457 problem details with type urn:flexicore:problem:license-* and a reason extension; bodies never echo any part of the file. 400 malformed or unsupported version, 413 too large, 415 wrong content type, 422 rejected (unknown key, bad signature, wrong product, expired, not yet valid), 409 older than current, 503 no trusted keys or storage failure.
+- Details for expired and not-yet-valid licenses: the verifier now returns the payload for authentic Expired and NotYetValid files so status can show them. IsAccepted is unchanged; callers must never base access on the payload alone.
+
+### Temporary choices (must change before commercial release)
+
+- Any authenticated user may import a license. This is an interim development rule and is NOT owner-only licensing. A commercial build needs a proper role or local-owner model so that only the machine owner or an administrator can import.
+- Status is readable by any authenticated user.
+- Import audit is structured log lines only (license id, outcome, correlation id). There are no database audit events.
+- Import locking is in-process. Two API instances sharing one license directory could race, so Local mode assumes a single instance.
+
+### Known limitations
+
+- The license file is signed, not secret and not tamper-proof against the machine owner: anyone who can write to the directory can delete it or replace it with another valid license. There is no device binding.
+- A user can patch the client or the API binary, including the embedded keys. Nothing in this slice defends against that.
+- There is no revocation: a signed license stays valid until it expires.
+- maxInstallations is informational only. Nothing counts or limits installations.
+- Signature encoding is defined by the verifier (ES256, raw 64-byte r||s, base64url). It has been exercised only with .NET-generated test keys; an independent signer must be checked against a fixed test vector before release.
+- Two things stay open for the owner tool: it must sign the exact payload bytes, and it must export the public key as DER SubjectPublicKeyInfo.
+
+### Before commercial release
+
+- Owner-only (or administrator-only) import, with sign-in rules for Local mode decided in the local-session slice.
+- Embed the production public key from the owner tool, and add an interoperability test vector (public key plus signed file, no private key).
+- Device binding, a revocation or replacement strategy, and a decision on tamper-resistant storage.
+- Decide how and where licensing is enforced against ERP endpoints, including the effect on tenancy.
+- Database audit events for import, and a plan for multiple instances if Local mode ever runs more than one.

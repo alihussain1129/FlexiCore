@@ -22,7 +22,7 @@ public enum LicenseStatus
 }
 
 /// <summary>
-/// Result of verification. <see cref="Payload"/> is set only when the license is accepted.
+/// Result of verification. <see cref="Payload"/> is set once signature and payload are verified and the product matches (Valid, ValidInGrace, NotYetValid, Expired). Only Valid and ValidInGrace are accepted; never base access decisions on the payload alone.
 /// Note: a valid result proves the file was signed by a trusted key. It does not make the
 /// license tamper-proof against someone patching the client, and it does not bind to a device.
 /// </summary>
