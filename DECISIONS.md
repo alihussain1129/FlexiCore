@@ -120,3 +120,8 @@ These sections were not written when the phases were committed. This summary com
 - Successes are audited as tenancy.member.role_change (metadata includes from_role and role) and tenancy.member.remove.
 - Routes: GET /api/v1/organizations/{id}/members, POST /api/v1/organizations/{id}/members, PUT /api/v1/organizations/{id}/members/{userId}/role, DELETE /api/v1/organizations/{id}/members/{userId}. The member list is not rate limited. Add, change role and remove use the tenancy-create policy from 2b-C3, so they share one window per user with organization and company creation.
 - Known limitation: the guard fires whenever the target's role is owner, but it counts only active owners. Removing or demoting a non-active owner membership is therefore also refused while only one active owner exists.
+## Phase 2c-3: pin test for email normalization
+
+- Tenancy normalizes member emails in FlexiCore.Tenancy.MemberEmail.Normalize, which repeats Identity EmailRules.Normalize (trim, then invariant lowercase) because Tenancy must not reference Identity.
+- EmailNormalizationPinTests in the unit test project references both modules and asserts that the two functions agree on mixed case, surrounding whitespace, accented, dotted capital I and titlecase inputs. Removing the lowercase step from MemberEmail makes it fail (checked by hand).
+- If the normalization rule changes, change both functions and the pin test together.

@@ -125,8 +125,8 @@ internal static class TenancyEndpoints
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
 
-        // Same rule as Identity EmailRules.Normalize. Tenancy may not reference Identity, so a test pins the two together.
-        var email = request.Email?.Trim().ToLowerInvariant();
+        // Tenancy may not reference Identity, so MemberEmail repeats EmailRules.Normalize; a unit test pins the two together.
+        var email = FlexiCore.Tenancy.MemberEmail.Normalize(request.Email);
         var role = request.Role?.Trim();
         var errors = new Dictionary<string, string[]>();
         if (string.IsNullOrEmpty(email) || email.Length < 3 || email.Length > 254 || !email.Contains('@'))

@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\FlexiCore.Identity\FlexiCore.Identity.csproj" />
     <ProjectReference Include="..\..\src\FlexiCore.Migrations\FlexiCore.Migrations.csproj" />
+    <ProjectReference Include="..\..\src\FlexiCore.Tenancy\FlexiCore.Tenancy.csproj" />
   </ItemGroup>
 
 </Project>
