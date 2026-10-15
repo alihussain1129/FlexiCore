@@ -25,6 +25,7 @@
     <ProjectReference Include="..\..\src\FlexiCore.Migrations\FlexiCore.Migrations.csproj" />
     <ProjectReference Include="..\..\src\FlexiCore.SharedKernel\FlexiCore.SharedKernel.csproj" />
     <ProjectReference Include="..\..\src\FlexiCore.Tenancy\FlexiCore.Tenancy.csproj" />
+    <ProjectReference Include="..\..\src\FlexiCore.Licensing\FlexiCore.Licensing.csproj" />
   </ItemGroup>
 
 </Project>

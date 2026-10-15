@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/FlexiCore.Api/FlexiCore.Api.csproj" />
     <Project Path="src/FlexiCore.Identity/FlexiCore.Identity.csproj" />
+    <Project Path="src/FlexiCore.Licensing/FlexiCore.Licensing.csproj" />
     <Project Path="src/FlexiCore.Migrations/FlexiCore.Migrations.csproj" />
     <Project Path="src/FlexiCore.SharedKernel/FlexiCore.SharedKernel.csproj" />
     <Project Path="src/FlexiCore.Tenancy/FlexiCore.Tenancy.csproj" />

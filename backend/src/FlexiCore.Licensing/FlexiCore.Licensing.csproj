@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Production public keys only. The file is supplied by the owner tooling and is
+         absent until then; with no file the loader returns no keys and verification fails closed. -->
+    <EmbeddedResource Include="Keys\production-public-keys.json" Condition="Exists('Keys\production-public-keys.json')" />
+  </ItemGroup>
+
+</Project>
