@@ -7,7 +7,11 @@
     <Project Path="src/FlexiCore.SharedKernel/FlexiCore.SharedKernel.csproj" />
     <Project Path="src/FlexiCore.Tenancy/FlexiCore.Tenancy.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/FlexiCore.LicenseTool/FlexiCore.LicenseTool.csproj" />
+  </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/FlexiCore.LicenseTool.Tests/FlexiCore.LicenseTool.Tests.csproj" />
     <Project Path="tests/FlexiCore.ArchitectureTests/FlexiCore.ArchitectureTests.csproj" />
     <Project Path="tests/FlexiCore.IntegrationTests/FlexiCore.IntegrationTests.csproj" />
     <Project Path="tests/FlexiCore.UnitTests/FlexiCore.UnitTests.csproj" />

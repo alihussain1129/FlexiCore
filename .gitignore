@@ -487,3 +487,11 @@ $RECYCLE.BIN/
 
 *.bak
 integration-test-failures.txt
+
+# FlexiCore: owner licensing keys and issue ledgers, never commit
+*.p8
+*.pem
+*.key
+*.enc
+*.private.*
+issued*.jsonl
