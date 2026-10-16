@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using FlexiCore.Licensing;
 
 namespace FlexiCore.LicenseTool.Tests;
@@ -284,6 +284,35 @@ public sealed class CliTests
         Assert.False(File.Exists(license));
     }
 
+    [Fact]
+    public void Keygen_stops_and_removes_temporary_file_when_permission_restriction_fails()
+    {
+        using var dir = new TempDir();
+
+        var error = Assert.Throws<LicenseToolException>(() =>
+            KeyStore.CreateForTesting("fc-test-acl", dir.Path, Pass, false, _ => false));
+
+        Assert.Contains("Could not restrict", error.Message, StringComparison.Ordinal);
+        Assert.False(File.Exists(dir.Combine("fc-test-acl.p8")));
+        Assert.False(File.Exists(dir.Combine("fc-test-acl.public.json")));
+        Assert.Empty(Directory.GetFiles(dir.Path));
+    }
+
+    [Fact]
+    public void Keygen_acl_failure_does_not_overwrite_existing_private_key_when_force_is_set()
+    {
+        using var dir = new TempDir();
+        var original = KeyStore.Create("fc-test-acl", dir.Path, Pass, false);
+        var originalPrivate = File.ReadAllBytes(original.PrivateKeyPath);
+        var originalPublic = File.ReadAllBytes(original.PublicKeyPath);
+
+        Assert.Throws<LicenseToolException>(() =>
+            KeyStore.CreateForTesting("fc-test-acl", dir.Path, Pass, true, _ => false));
+
+        Assert.Equal(originalPrivate, File.ReadAllBytes(original.PrivateKeyPath));
+        Assert.Equal(originalPublic, File.ReadAllBytes(original.PublicKeyPath));
+        Assert.Empty(Directory.GetFiles(dir.Path, "*.tmp"));
+    }
     [Fact]
     public void Unknown_commands_and_options_are_usage_errors()
     {
