@@ -176,3 +176,29 @@ These sections were not written when the phases were committed. This summary com
 - Independent check done (2026-10-16): the Python cryptography library (50.0.2) verified the signatures on valid, expired and wrong-product and rejected tampered. This covers the signature layer only (ES256, raw r||s, base64url, SPKI key encoding); status logic is verified by the .NET tests. It is a manual check and is not part of the test run.
 - File-based key storage depends on the passphrase and on where the file is kept. A KMS or hardware token is the next step up. The passphrase policy checks length and variety only.
 - The ledger is a plain file, not tamper-proof. Revocation, device binding, owner-only import, and enforcement are unchanged from 12b.
+
+## Phase 13a: anonymous local activation (loopback)
+
+- Scope: backend only. In Local mode, GET /api/v1/license/status and PUT /api/v1/license accept a signed-in user or an anonymous caller on the machine itself, so a customer can activate with the owner-issued license without email registration or password sign-in. No change to Hosted mode, LicenseService, the verifier, the file store, Identity, Tenancy, the schema, or the Flutter client. No production key was generated or embedded.
+- Rule: the LocalActivation policy is registered only when Deployment:Mode is Local and is applied only to those two routes. An anonymous caller is accepted only if all of these hold: the remote address is present and loopback (127.0.0.0/8, ::1, or IPv4-mapped loopback); none of Forwarded, X-Forwarded-For, X-Forwarded-Host, X-Forwarded-Proto or X-Real-IP is present; and the Host header is localhost, 127.0.0.1 or [::1], with any port. Anything else gets the normal 401. A missing remote address is refused.
+- Local mode still comes only from server configuration (Deployment:Mode and License:Directory), fixed at startup. No request header, query string or body can switch it.
+- Authorization is now declared per route instead of on the license route group, so a route added later is never opened by accident. Hosted status still requires sign-in and Hosted still has no import route (PUT is 404).
+- Unchanged: signature, expiry, rollback and size checks, the import rate limit, and every other endpoint. Anonymous callers share the ip:127.0.0.1 rate-limit bucket.
+- Tests: 25 integration tests in LicenseLocalActivationTests. The remote address is injected by a test-only startup filter in the test host, never by production code. Cases: IPv4, IPv6 and IPv4-mapped loopback allowed; 203.0.113.5 and a null address refused (status and import); each forwarding header refused; foreign Host refused and local Host with a port allowed; signed-in users from a non-loopback address still work; tampered, expired and older licenses still rejected with the file untouched; /auth/me, organizations and companies still 401 for anonymous loopback; Hosted unchanged. One existing test was renamed to Local_refuses_anonymous_callers_without_a_loopback_address. Result: architecture 35, unit 213, integration 217, 0 failed.
+
+### Supersedes (Local mode only)
+
+- The 12b interim rules "any authenticated user may import" and "status requires sign-in" now also allow an anonymous caller on loopback. Signed-in users keep their access. Hosted mode is unchanged.
+
+### Known limitations
+
+- Any process or user on the activation machine can call these two routes. It can only import a license signed by a trusted key, and the rollback check still refuses an older license, but it can replace the stored license with a newer valid one.
+- Machines on the network are not covered. They must sign in. Remote activation without an account is not supported.
+- A reverse proxy on the same machine makes every external request arrive from loopback. Such requests are refused only while the proxy forwards a header that the rule checks. A proxy that strips those headers would make external requests look local, so do not put one in front of Local mode. Forwarded-headers middleware is not configured. If it is ever enabled, this rule must be revisited.
+- Anonymous activation does not replace owner-only import, which stays open (see below).
+
+### Still open after 13a
+
+- The production key has not been generated, so a real build still reports unavailable until Phase 12d embeds it.
+- Owner-only import, enforcement against ERP endpoints, device binding, revocation and database audit events are unchanged from 12b.
+- The Flutter activation screen that calls these two endpoints is not built.
