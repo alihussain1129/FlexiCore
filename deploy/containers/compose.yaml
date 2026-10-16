@@ -19,5 +19,24 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+
+  api:
+    image: flexicore-api:local
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: "8080"
+      Deployment__Mode: Hosted
+      ConnectionStrings__Default: "Host=postgres;Port=5432;Database=flexicore;Username=flexicore_app;Password=${FLEXICORE_APP_PASSWORD:?FLEXICORE_APP_PASSWORD must be configured in .env}"
+      Jwt__SigningKey: ${FLEXICORE_JWT_SIGNING_KEY:?FLEXICORE_JWT_SIGNING_KEY must be configured in .env}
+    ports:
+      - "127.0.0.1:5265:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   pgdata:

@@ -1,0 +1,10 @@
+﻿.git
+.vs
+**/bin/
+**/obj/
+**/.vs/
+client/
+**/.env
+**/.env.*
+!**/.env.example
+deploy/containers/.env
