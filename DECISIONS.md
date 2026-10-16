@@ -202,3 +202,19 @@ These sections were not written when the phases were committed. This summary com
 - The production key has not been generated, so a real build still reports unavailable until Phase 12d embeds it.
 - Owner-only import, enforcement against ERP endpoints, device binding, revocation and database audit events are unchanged from 12b.
 - The Flutter activation screen that calls these two endpoints is not built.
+
+## Phase 12c follow-up: transactional key-pair replacement
+
+- keygen now stages the encrypted private key and the public key file under temporary names in the target folder. The private temporary file is restricted to the current user before any key bytes are written. With --force, an existing pair is moved aside to backup files, the new pair is moved into place, and the backups are deleted only after both moves succeed.
+- If any step fails, the previous pair is restored and the temporary files are removed. If the restore itself fails, the error names the files to check by hand instead of hiding the problem.
+- Before this change a failure between replacing the private key and writing the public file could leave a private key whose public file belonged to a different key.
+- Tests: KeyReplacementTests simulates a failure while placing either file (forced replacement keeps the old pair, first-time creation leaves nothing behind) and checks that a successful forced replacement leaves only the new pair. The tests use a fake permission check and a failing file-move seam that only the test assembly can reach.
+- Not covered by automated tests: the real Windows icacls call together with --force. A manual run in a temporary folder outside the repository is still to do. No production key was generated.
+
+## Deployment: container images and migrations
+
+- backend/Dockerfile has two published targets: runtime (the API) and migrations (the FlexiCore.Migrations console app on the plain .NET runtime image). Both run as the image's non-root user.
+- deploy/containers/compose.yaml has three services. postgres is unchanged. migrate is a one-shot service that runs as flexicore_owner through FLEXICORE_MIGRATIONS_CONNECTION. api runs as flexicore_app and starts only after migrate completed successfully. Missing FLEXICORE_OWNER_PASSWORD, FLEXICORE_APP_PASSWORD or FLEXICORE_JWT_SIGNING_KEY stops compose with a message instead of starting with an empty value.
+- Verified (2026-10-16): on an empty volume migrate applied all 8 scripts, exited 0, and the API started afterwards. Not yet verified: /health/ready against a freshly migrated container, and a registration or sign-in round trip.
+- The API container runs as Production with Deployment__Mode Hosted, so registration is disabled unless Registration__Enabled is set explicitly. The host port is bound to 127.0.0.1:5265, the same port as a local dotnet run.
+- Known limitations: no TLS inside the stack (see D8); ASP.NET data-protection keys live inside the container and are unencrypted (nothing uses them today because sign-in tokens are JWT); both containers log a harmless message about the optional Kerberos library libgssapi_krb5; Local mode is not packaged (no license directory volume); no backups, secrets management or cloud deployment yet.
