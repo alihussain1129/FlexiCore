@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import 'core/appearance_controller.dart';
 import 'features/auth/login_screen.dart';
 import 'features/auth/session_controller.dart';
+import 'features/license/license_controller.dart';
+import 'features/license/license_screen.dart';
 import 'features/workspace/workspace_screen.dart';
 
 class FlexiCoreApp extends StatelessWidget {
@@ -71,6 +73,18 @@ class _Root extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final session = context.watch<SessionController>();
+
+    final license = context.watch<LicenseController>();
+    switch (license.state) {
+      case LicenseUiState.checking:
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      case LicenseUiState.needsLicense:
+      case LicenseUiState.unavailable:
+      case LicenseUiState.unreachable:
+        return const LicenseScreen();
+      case LicenseUiState.ready:
+        break;
+    }
 
     switch (session.status) {
       case SessionStatus.starting:

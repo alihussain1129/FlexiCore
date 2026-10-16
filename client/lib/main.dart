@@ -6,6 +6,8 @@ import 'core/api_client.dart';
 import 'core/appearance_controller.dart';
 import 'core/config.dart';
 import 'core/token_storage.dart';
+import 'features/license/license_controller.dart';
+import 'features/license/license_service.dart';
 import 'features/auth/auth_service.dart';
 import 'features/auth/session_controller.dart';
 
@@ -28,12 +30,19 @@ void main() {
     storage: storage,
   )..start();
 
+  final licenseService = LicenseService(api);
+  final license = LicenseController(
+    fetchStatus: licenseService.fetchStatus,
+    importLicense: licenseService.importLicense,
+  )..check();
+
   runApp(
     MultiProvider(
       providers: [
         Provider<ApiClient>.value(value: api),
         ChangeNotifierProvider<SessionController>.value(value: session),
         ChangeNotifierProvider<AppearanceController>.value(value: appearance),
+        ChangeNotifierProvider<LicenseController>.value(value: license),
       ],
       child: const FlexiCoreApp(),
     ),
