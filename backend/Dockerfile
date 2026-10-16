@@ -1,4 +1,4 @@
-﻿FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY backend/src/FlexiCore.Api/FlexiCore.Api.csproj backend/src/FlexiCore.Api/
@@ -31,3 +31,24 @@ COPY --from=build /app/publish/ ./
 
 USER $APP_UID
 ENTRYPOINT ["dotnet", "FlexiCore.Api.dll"]
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS migrations-build
+WORKDIR /src
+
+COPY backend/src/FlexiCore.Migrations/FlexiCore.Migrations.csproj backend/src/FlexiCore.Migrations/
+RUN dotnet restore backend/src/FlexiCore.Migrations/FlexiCore.Migrations.csproj
+
+COPY backend/src/FlexiCore.Migrations/ backend/src/FlexiCore.Migrations/
+RUN dotnet publish backend/src/FlexiCore.Migrations/FlexiCore.Migrations.csproj \
+    --configuration Release \
+    --no-restore \
+    --output /app/migrations \
+    /p:UseAppHost=false
+
+FROM mcr.microsoft.com/dotnet/runtime:10.0 AS migrations
+WORKDIR /app
+
+COPY --from=migrations-build /app/migrations/ ./
+
+USER $APP_UID
+ENTRYPOINT ["dotnet", "FlexiCore.Migrations.dll"]

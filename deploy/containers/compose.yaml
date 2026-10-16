@@ -20,11 +20,24 @@ services:
       timeout: 3s
       retries: 20
 
+  migrate:
+    image: flexicore-migrations:local
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+      target: migrations
+    restart: "no"
+    environment:
+      FLEXICORE_MIGRATIONS_CONNECTION: "Host=postgres;Port=5432;Database=flexicore;Username=flexicore_owner;Password=${FLEXICORE_OWNER_PASSWORD:?FLEXICORE_OWNER_PASSWORD must be configured in .env}"
+    depends_on:
+      postgres:
+        condition: service_healthy
   api:
     image: flexicore-api:local
     build:
       context: ../..
       dockerfile: backend/Dockerfile
+      target: runtime
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: Production
@@ -35,8 +48,8 @@ services:
     ports:
       - "127.0.0.1:5265:8080"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   pgdata:
