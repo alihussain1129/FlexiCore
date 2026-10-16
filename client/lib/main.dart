@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'app.dart';
 import 'core/api_client.dart';
+import 'core/appearance_controller.dart';
 import 'core/config.dart';
 import 'core/token_storage.dart';
 import 'features/auth/auth_service.dart';
@@ -12,12 +13,15 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
   final storage = SecureTokenStorage();
+  final appearance = AppearanceController()..load();
+
   late final SessionController session;
   final api = ApiClient(
     baseUrl: AppConfig.apiBaseUrl,
     storage: storage,
     onSessionExpired: () => session.markSignedOut(),
   );
+
   session = SessionController(
     auth: AuthService(api),
     api: api,
@@ -29,6 +33,7 @@ void main() {
       providers: [
         Provider<ApiClient>.value(value: api),
         ChangeNotifierProvider<SessionController>.value(value: session),
+        ChangeNotifierProvider<AppearanceController>.value(value: appearance),
       ],
       child: const FlexiCoreApp(),
     ),
