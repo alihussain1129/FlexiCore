@@ -173,6 +173,6 @@ These sections were not written when the phases were committed. This summary com
 ### Still open after 12c
 
 - The production key has not been generated. When it is, embed production-public-keys.json and change the integration test that expects state unavailable in the same commit.
-- The vectors were signed by a .NET key. The independent check described in the Vectors README (a non-.NET verifier) is a manual step and has not been recorded as done here.
+- Independent check done (2026-10-16): the Python cryptography library (50.0.2) verified the signatures on valid, expired and wrong-product and rejected tampered. This covers the signature layer only (ES256, raw r||s, base64url, SPKI key encoding); status logic is verified by the .NET tests. It is a manual check and is not part of the test run.
 - File-based key storage depends on the passphrase and on where the file is kept. A KMS or hardware token is the next step up. The passphrase policy checks length and variety only.
 - The ledger is a plain file, not tamper-proof. Revocation, device binding, owner-only import, and enforcement are unchanged from 12b.

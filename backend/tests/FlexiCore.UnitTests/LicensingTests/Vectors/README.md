@@ -21,6 +21,8 @@ change fails the tests until someone updates the hashes on purpose.
 
 ## Independent check (optional, not part of the test run)
 
+Result recorded 2026-10-16: Python cryptography 50.0.2 printed "signature OK" for valid, expired and wrong-product and "signature INVALID" for tampered. Re-run it only if the vectors are ever regenerated.
+
 This verifies the signatures with a non-.NET implementation. Run it once from this folder after `pip install cryptography`.
 Expected: valid, expired and wrong-product print "signature OK"; tampered prints "signature INVALID".
 
