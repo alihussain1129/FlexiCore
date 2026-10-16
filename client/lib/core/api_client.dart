@@ -17,8 +17,8 @@ class ApiClient {
     required TokenStorage storage,
     http.Client? httpClient,
     this.onSessionExpired,
-  })  : _storage = storage,
-        _http = httpClient ?? http.Client();
+  }) : _storage = storage,
+       _http = httpClient ?? http.Client();
 
   final String baseUrl;
   final TokenStorage _storage;
@@ -50,8 +50,22 @@ class ApiClient {
 
   /// A request without authentication (register, login, logout).
   Future<http.Response> postPublic(String path, Map<String, dynamic> body) =>
-      _send(() => _http.post(_uri(path),
-          headers: _jsonHeaders, body: jsonEncode(body)));
+      _send(
+        () => _http.post(
+          _uri(path),
+          headers: _jsonHeaders,
+          body: jsonEncode(body),
+        ),
+      );
+
+  /// An anonymous GET with no token (license status before sign-in).
+  Future<http.Response> getPublic(String path) =>
+      _send(() => _http.get(_uri(path), headers: _jsonHeaders));
+
+  /// An anonymous PUT of JSON text sent exactly as given, with no token and no
+  /// re-encoding of the document (license import before sign-in).
+  Future<http.Response> putJsonTextPublic(String path, String jsonText) =>
+      _send(() => _http.put(_uri(path), headers: _jsonHeaders, body: jsonText));
 
   /// An authenticated request. On 401 it refreshes once and retries once.
   Future<http.Response> send(
@@ -71,7 +85,10 @@ class ApiClient {
   }
 
   Future<http.Response> _sendAuthed(
-      String method, String path, Map<String, dynamic>? body) {
+    String method,
+    String path,
+    Map<String, dynamic>? body,
+  ) {
     return _send(() {
       final request = http.Request(method, _uri(path));
       request.headers.addAll(_jsonHeaders);
@@ -110,8 +127,13 @@ class ApiClient {
 
     final http.Response response;
     try {
-      response = await _send(() => _http.post(_uri('/api/v1/auth/refresh'),
-          headers: _jsonHeaders, body: jsonEncode({'refreshToken': stored})));
+      response = await _send(
+        () => _http.post(
+          _uri('/api/v1/auth/refresh'),
+          headers: _jsonHeaders,
+          body: jsonEncode({'refreshToken': stored}),
+        ),
+      );
     } on ApiException {
       // Server unreachable: keep the stored token, the user may retry later.
       return false;
