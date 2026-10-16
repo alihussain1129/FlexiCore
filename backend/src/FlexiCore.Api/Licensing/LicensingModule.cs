@@ -35,6 +35,7 @@ public static class LicensingModule
         services.AddSingleton<ILicenseStore>(_ => new FileLicenseStore(settings.LicenseDirectory!));
         services.AddSingleton(sp => new LicenseVerifier(ProductionKeyLoader.Load(), sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<LicenseService>();
+        LocalActivationAuthorization.Register(services);
 
         // Adds a policy only; the 429 handler is the global one registered by the Identity module.
         services.AddOptions<RateLimiterOptions>().Configure(options =>

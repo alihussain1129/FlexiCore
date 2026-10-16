@@ -42,17 +42,22 @@ internal static class LicenseEndpoints
 
     public static void Map(IEndpointRouteBuilder endpoints, DeploymentSettings settings)
     {
-        // Any authenticated user may call these. That is an interim development rule, not the commercial security model.
-        var group = endpoints.MapGroup("/api/v1/license").RequireAuthorization();
+        // Authorization is declared per route, not on the group, so a route added later is never silently opened.
+        var group = endpoints.MapGroup("/api/v1/license");
 
         if (settings.Mode == DeploymentMode.Hosted)
         {
-            group.MapGet("/status", HostedStatus);
+            group.MapGet("/status", HostedStatus).RequireAuthorization();
             return; // no import route in Hosted mode, so PUT returns 404
         }
 
-        group.MapGet("/status", LocalStatusAsync);
-        group.MapPut("", ImportAsync).RequireRateLimiting(LicensingModule.ImportRateLimitPolicy);
+        // Local mode: a signed-in user, or an anonymous caller on this machine (loopback), may check and import.
+        // Everything else in the API still requires a signed-in user.
+        group.MapGet("/status", LocalStatusAsync)
+            .RequireAuthorization(LocalActivationAuthorization.PolicyName);
+        group.MapPut("", ImportAsync)
+            .RequireAuthorization(LocalActivationAuthorization.PolicyName)
+            .RequireRateLimiting(LicensingModule.ImportRateLimitPolicy);
     }
 
     private static IResult HostedStatus(HttpContext http, TimeProvider time)

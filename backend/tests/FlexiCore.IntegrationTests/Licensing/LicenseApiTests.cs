@@ -160,7 +160,7 @@ public sealed class LicenseApiTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task Local_endpoints_require_a_live_session()
+    public async Task Local_refuses_anonymous_callers_without_a_loopback_address()
     {
         using var dir = new TempDirectory();
         var (app, _) = await StartAsync("Local", dir.Path);
