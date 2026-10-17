@@ -47,8 +47,12 @@ public sealed class LicenseService
     private readonly LicenseVerifier _verifier;
     private readonly TimeProvider _time;
     private readonly SemaphoreSlim _importLock = new(1, 1);
+    private readonly IInstallationIdentity _identity;
+    private readonly bool _requireBinding;
 
-    public LicenseService(ILicenseStore store, LicenseVerifier verifier, TimeProvider time)
+    public LicenseService(
+        ILicenseStore store, LicenseVerifier verifier, TimeProvider time,
+        IInstallationIdentity? identity = null, bool requireBinding = false)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(verifier);
@@ -56,6 +60,8 @@ public sealed class LicenseService
         _store = store;
         _verifier = verifier;
         _time = time;
+        _identity = identity ?? new MachineInstallationIdentity();
+        _requireBinding = requireBinding;
     }
 
     public async Task<LicenseStatusReport> GetStatusAsync(CancellationToken cancellationToken)
@@ -77,7 +83,7 @@ public sealed class LicenseService
         if (stored is null)
             return new LicenseStatusReport(LicenseState.Missing, null, null, null, now);
 
-        return Evaluate(_verifier.Verify(stored), now);
+        return Evaluate(Gate(_verifier.Verify(stored)), now);
     }
 
     public async Task<LicenseImportResult> ImportAsync(byte[] content, CancellationToken cancellationToken)
@@ -87,7 +93,14 @@ public sealed class LicenseService
         if (content.Length > LicenseLimits.MaxFileBytes)
             return new LicenseImportResult(LicenseImportOutcome.Rejected, LicenseStatus.FileTooLarge, null);
 
-        var candidate = _verifier.Verify(content);
+        if (ActivationCode.LooksLikeCode(content))
+        {
+            if (!ActivationCode.TryDecode(content, out var decoded))
+                return new LicenseImportResult(LicenseImportOutcome.Rejected, LicenseStatus.Malformed, null);
+            content = decoded;
+        }
+
+        var candidate = Gate(_verifier.Verify(content));
         if (candidate.Status == LicenseStatus.NoTrustedKeys)
             return new LicenseImportResult(LicenseImportOutcome.VerificationUnavailable, candidate.Status, null);
         if (!candidate.IsAccepted)
@@ -136,6 +149,24 @@ public sealed class LicenseService
         }
     }
 
+    /// <summary>
+    /// Installation binding. An accepted license bound to another computer is refused; an unbound license is
+    /// refused when binding is required. Fail closed: if this computer's identity cannot be read, bound licenses fail.
+    /// </summary>
+    private LicenseVerificationResult Gate(LicenseVerificationResult r)
+    {
+        if (!r.IsAccepted || r.Payload is null) return r;
+        var bound = r.Payload.InstallationId;
+        if (bound is null)
+            return _requireBinding ? new LicenseVerificationResult(LicenseStatus.NotBound, null) : r;
+
+        var local = _identity.InstallationId;
+        if (local is null || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                System.Text.Encoding.ASCII.GetBytes(bound), System.Text.Encoding.ASCII.GetBytes(local)))
+            return new LicenseVerificationResult(LicenseStatus.WrongInstallation, null);
+        return r;
+    }
+
     /// <summary>Machine-readable reason for a verification status.</summary>
     public static string? ReasonCode(LicenseStatus status) => status switch
     {
@@ -150,6 +181,8 @@ public sealed class LicenseService
         LicenseStatus.WrongProduct => "wrong_product",
         LicenseStatus.NotYetValid => "not_yet_valid",
         LicenseStatus.Expired => "expired",
+        LicenseStatus.WrongInstallation => "wrong_installation",
+        LicenseStatus.NotBound => "not_bound",
         _ => "unknown",
     };
 

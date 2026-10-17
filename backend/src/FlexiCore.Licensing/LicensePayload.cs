@@ -9,4 +9,5 @@ public sealed record LicensePayload(
     DateTimeOffset NotBefore,
     DateTimeOffset? ExpiresAt,
     int GraceDays,
-    int MaxInstallations);
+    int MaxInstallations,
+    string? InstallationId = null);

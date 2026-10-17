@@ -13,7 +13,8 @@ public sealed record LicenseRequest(
     DateTimeOffset? ExpiresAt,
     int GraceDays,
     int MaxInstallations,
-    string Product = LicenseLimits.ExpectedProduct);
+    string Product = LicenseLimits.ExpectedProduct,
+    string? InstallationId = null);
 
 /// <summary>
 /// Builds licenses in the exact format LicenseVerifier accepts: compact UTF-8 payload JSON in a fixed field order,
@@ -48,6 +49,9 @@ public static class LicenseIssuer
         if (allowOtherProduct) CheckText("The product", request.Product, LicenseLimits.MaxProductLength);
         else if (!string.Equals(request.Product, LicenseLimits.ExpectedProduct, StringComparison.Ordinal))
             throw new LicenseToolException($"The product must be '{LicenseLimits.ExpectedProduct}'.");
+
+        if (request.InstallationId is not null && !InstallationIds.IsValid(request.InstallationId))
+            throw new LicenseToolException("The installation id is not valid.");
 
         var issuedAt = Truncate(request.IssuedAt);
         var notBefore = Truncate(request.NotBefore);
@@ -92,6 +96,7 @@ public static class LicenseIssuer
             else writer.WriteNull("expiresAt");
             writer.WriteNumber("graceDays", r.GraceDays);
             writer.WriteNumber("maxInstallations", r.MaxInstallations);
+            if (r.InstallationId is not null) writer.WriteString("installationId", r.InstallationId);
             writer.WriteEndObject();
         }
         return stream.ToArray();
@@ -140,7 +145,8 @@ public static class LicenseIssuer
                    && p.NotBefore == r.NotBefore
                    && p.ExpiresAt == r.ExpiresAt
                    && p.GraceDays == r.GraceDays
-                   && p.MaxInstallations == r.MaxInstallations;
+                   && p.MaxInstallations == r.MaxInstallations
+                   && p.InstallationId == r.InstallationId;
         if (!same)
             throw new LicenseToolException($"Self-check failed ({result.Status}). Nothing was written.", 2);
     }

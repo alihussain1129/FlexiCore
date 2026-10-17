@@ -147,12 +147,15 @@ public static class LicenseToolApp
     {
         var p = ArgParser.Parse(
             rest,
-            ["key", "license-id", "licensee", "issued-at", "not-before", "expires", "grace", "installations", "out", "ledger"],
+            ["key", "license-id", "licensee", "issued-at", "not-before", "expires", "grace", "installations", "out", "ledger", "installation", "format"],
             ["force"]);
 
         var keyPath = p.Require("key");
         var outPath = Path.GetFullPath(p.Require("out"));
         var force = p.Flags.Contains("force");
+        var format = p.Optional("format") ?? "file";
+        if (format is not ("file" or "code" or "both"))
+            throw new LicenseToolException("--format must be file, code or both.");
         if (!force && File.Exists(outPath))
             throw new LicenseToolException($"The license file already exists: {outPath}. Use --force to replace it.");
 
@@ -166,7 +169,8 @@ public static class LicenseToolApp
                 NotBefore: ParseTime("not-before", p.Optional("not-before") ?? "now", time),
                 ExpiresAt: expiresText == "never" ? null : ParseTime("expires", expiresText, time),
                 GraceDays: ParseInt("grace", p.Optional("grace"), 0),
-                MaxInstallations: ParseInt("installations", p.Optional("installations"), 1)),
+                MaxInstallations: ParseInt("installations", p.Optional("installations"), 1),
+                InstallationId: ParseInstallation(p.Optional("installation"))),
             allowOtherProduct: false);
 
         var ledger = p.Optional("ledger");
@@ -182,6 +186,8 @@ public static class LicenseToolApp
         var file = LicenseIssuer.Issue(request, signer);
 
         WriteNew(outPath, file, force, "The license file");
+        if (format is "code" or "both")
+            WriteNew(outPath + ".code.txt", System.Text.Encoding.ASCII.GetBytes(ActivationCode.Encode(file)), force, "The activation code file");
         if (ledger is not null) IssueLedger.Append(ledger, request, signer.KeyId, file, time.GetUtcNow());
 
         console.Out.WriteLine($"Issued {request.LicenseId} to '{request.Licensee}' with key '{signer.KeyId}'");
@@ -222,6 +228,13 @@ public static class LicenseToolApp
     }
 
     // ---- helpers ----
+
+    private static string? ParseInstallation(string? text)
+    {
+        if (text is null) return null;
+        if (InstallationIds.TryParseRequestCode(text, out var id)) return id;
+        throw new LicenseToolException("--installation must be the customer request code (FCR1-...).");
+    }
 
     private static string ReadPassphrase(IToolConsole console, string prompt) =>
         console.ReadPassphrase(prompt)

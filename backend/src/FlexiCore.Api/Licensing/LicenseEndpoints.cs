@@ -55,9 +55,23 @@ internal static class LicenseEndpoints
         // Everything else in the API still requires a signed-in user.
         group.MapGet("/status", LocalStatusAsync)
             .RequireAuthorization(LocalActivationAuthorization.PolicyName);
+        group.MapGet("/request", RequestCode)
+            .RequireAuthorization(LocalActivationAuthorization.PolicyName);
         group.MapPut("", ImportAsync)
             .RequireAuthorization(LocalActivationAuthorization.PolicyName)
             .RequireRateLimiting(LicensingModule.ImportRateLimitPolicy);
+    }
+
+    private static readonly IInstallationIdentity RequestIdentity = new MachineInstallationIdentity();
+
+    private static IResult RequestCode(HttpContext http)
+    {
+        http.Response.Headers.CacheControl = "no-store";
+        var id = RequestIdentity.InstallationId;
+        return id is null
+            ? Problem(StatusCodes.Status503ServiceUnavailable, "This computer's identity could not be read",
+                "license-identity-unavailable")
+            : Results.Ok(new { requestCode = InstallationIds.ToRequestCode(id) });
     }
 
     private static IResult HostedStatus(HttpContext http, TimeProvider time)

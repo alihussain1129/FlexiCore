@@ -28,7 +28,7 @@ public sealed class LicenseVerifier
     private static readonly string[] PayloadFields =
     [
         "schemaVersion", "licenseId", "product", "licensee", "issuedAt",
-        "notBefore", "expiresAt", "graceDays", "maxInstallations",
+        "notBefore", "expiresAt", "graceDays", "maxInstallations", "installationId",
     ];
 
     internal static readonly Regex KeyIdPattern = new(
@@ -148,6 +148,14 @@ public sealed class LicenseVerifier
                 || maxInstallations < 1 || maxInstallations > LicenseLimits.MaxInstallationsLimit)
                 return Fail(LicenseStatus.InvalidPayload);
 
+            string? installationId = null;
+            if (p.ContainsKey("installationId"))
+            {
+                if (!TryGetString(p, "installationId", out var iid) || !InstallationIds.IsValid(iid))
+                    return Fail(LicenseStatus.InvalidPayload);
+                installationId = iid;
+            }
+
             if (expiresAt is { } e && e <= notBefore) return Fail(LicenseStatus.InvalidPayload);
 
             if (!string.Equals(product, LicenseLimits.ExpectedProduct, StringComparison.Ordinal))
@@ -157,9 +165,9 @@ public sealed class LicenseVerifier
             if (now < notBefore)
                 return new LicenseVerificationResult(
                     LicenseStatus.NotYetValid,
-                    new LicensePayload(licenseId, product, licensee, issuedAt, notBefore, expiresAt, graceDays, maxInstallations));
+                    new LicensePayload(licenseId, product, licensee, issuedAt, notBefore, expiresAt, graceDays, maxInstallations, installationId));
 
-            var payload = new LicensePayload(licenseId, product, licensee, issuedAt, notBefore, expiresAt, graceDays, maxInstallations);
+            var payload = new LicensePayload(licenseId, product, licensee, issuedAt, notBefore, expiresAt, graceDays, maxInstallations, installationId);
 
             if (expiresAt is null || now <= expiresAt.Value)
                 return new LicenseVerificationResult(LicenseStatus.Valid, payload);
