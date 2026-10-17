@@ -34,6 +34,7 @@ void main() {
   final license = LicenseController(
     fetchStatus: licenseService.fetchStatus,
     importLicense: licenseService.importLicense,
+    fetchRequestCode: licenseService.fetchRequestCode,
   )..check();
 
   runApp(

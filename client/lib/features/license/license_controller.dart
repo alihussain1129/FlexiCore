@@ -12,11 +12,16 @@ class LicenseController extends ChangeNotifier {
   LicenseController({
     required Future<LicenseStatus?> Function() fetchStatus,
     required Future<LicenseStatus> Function(String text) importLicense,
+    Future<String?> Function()? fetchRequestCode,
   }) : _fetchStatus = fetchStatus,
-       _importLicense = importLicense;
+       _importLicense = importLicense,
+       _fetchRequestCode = fetchRequestCode;
 
   final Future<LicenseStatus?> Function() _fetchStatus;
   final Future<LicenseStatus> Function(String text) _importLicense;
+  final Future<String?> Function()? _fetchRequestCode;
+  String? _requestCode;
+  bool _requestLoaded = false;
 
   LicenseUiState _state = LicenseUiState.checking;
   LicenseStatus? _status;
@@ -29,8 +34,31 @@ class LicenseController extends ChangeNotifier {
   String? get importError => _importError;
   bool get busy => _busy;
 
+  /// This computer's activation request code, or null when unavailable.
+  String? get requestCode => _requestCode;
+  bool get requestLoaded => _requestLoaded;
+
+  Future<void> loadRequestCode() async {
+    final fetch = _fetchRequestCode;
+    if (fetch != null) {
+      try {
+        _requestCode = await fetch();
+      } catch (_) {
+        _requestCode = null;
+      }
+    }
+    _requestLoaded = true;
+    notifyListeners();
+  }
+
   /// Extra explanation when a license is installed but not usable.
   String? get hint {
+    if (_status?.reason == 'wrong_installation') {
+      return "This license was issued for a different computer. Send this computer's request code to the vendor to get a new one.";
+    }
+    if (_status?.reason == 'not_bound') {
+      return 'The installed license is not tied to this computer. Ask the vendor for a new license made from your request code.';
+    }
     switch (_status?.state) {
       case 'expired':
         return 'Your license has expired. Paste a new license file to continue.';

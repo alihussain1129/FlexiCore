@@ -109,6 +109,7 @@ class LicenseService {
 
   static const statusPath = '/api/v1/license/status';
   static const importPath = '/api/v1/license';
+  static const requestPath = '/api/v1/license/request';
 
   /// Returns null on 401: the server does not offer anonymous license access to
   /// this caller (Hosted mode, or not the machine running the server).
@@ -120,7 +121,24 @@ class LicenseService {
     return _parse(response);
   }
 
-  /// Sends the license text exactly as given. Throws [LicenseImportException].
+  /// This computer's activation request code (FCR1-...), or null when the
+  /// server cannot provide one. Never throws.
+  Future<String?> fetchRequestCode() async {
+    try {
+      final response = await _api.getPublic(requestPath);
+      if (response.statusCode != 200) return null;
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) {
+        final code = decoded['requestCode'];
+        if (code is String && code.startsWith('FCR1-')) return code;
+      }
+    } catch (_) {
+      // Unavailable: the screen explains it.
+    }
+    return null;
+  }
+
+  /// Sends the license text or activation code exactly as given. Throws [LicenseImportException].
   Future<LicenseStatus> importLicense(String text) async {
     final http.Response response;
     try {
@@ -180,6 +198,12 @@ class LicenseService {
       case 422:
         if (reason == 'expired') {
           return 'This license has expired. Ask for a new license file.';
+        }
+        if (reason == 'wrong_installation') {
+          return "This license was issued for a different computer. Send this computer's request code to the vendor to get a new one.";
+        }
+        if (reason == 'not_bound') {
+          return 'This license is not tied to this computer. Ask the vendor for a license made from your request code.';
         }
         if (reason == 'invalid_signature') {
           return 'This license is not authentic and was rejected.';
