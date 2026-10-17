@@ -22,6 +22,8 @@ internal static class TenancyEndpoints
 
     private static readonly Regex IndustryKeyPattern =
         new(@"^[a-z][a-z0-9_]{1,63}\z", RegexOptions.CultureInvariant);
+    private const int DefaultListSize = 100;
+    private const int MaxListOffset = 5_000_000;
 
     public static void Map(IEndpointRouteBuilder endpoints)
     {
@@ -60,10 +62,12 @@ internal static class TenancyEndpoints
     }
 
     private static async Task<IResult> ListOrganizationsAsync(
-        ClaimsPrincipal principal, TenancyStore store, CancellationToken ct)
+        int? limit, int? offset, ClaimsPrincipal principal, TenancyStore store, CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
-        return Results.Ok(await store.ListOrganizationsAsync(userId, ct));
+        if (!TryGetListPage(limit, offset, out var pageSize, out var pageOffset))
+            return InvalidListPage();
+        return Results.Ok(await store.ListOrganizationsAsync(userId, pageSize, pageOffset, ct));
     }
 
     private static async Task<IResult> CreateCompanyAsync(
@@ -95,10 +99,12 @@ internal static class TenancyEndpoints
     }
 
     private static async Task<IResult> ListCompaniesAsync(
-        ClaimsPrincipal principal, TenancyStore store, CancellationToken ct)
+        int? limit, int? offset, ClaimsPrincipal principal, TenancyStore store, CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
-        return Results.Ok(await store.ListCompaniesAsync(userId, ct));
+        if (!TryGetListPage(limit, offset, out var pageSize, out var pageOffset))
+            return InvalidListPage();
+        return Results.Ok(await store.ListCompaniesAsync(userId, pageSize, pageOffset, ct));
     }
 
     private static async Task<IResult> GetCompanyAsync(
@@ -179,6 +185,20 @@ internal static class TenancyEndpoints
 
     private static string? CorrelationId(HttpContext http) =>
         http.Items.TryGetValue(CorrelationContext.ItemKey, out var value) ? value as string : null;
+
+    private static bool TryGetListPage(int? limit, int? offset, out int pageSize, out int pageOffset)
+    {
+        pageSize = limit ?? DefaultListSize;
+        pageOffset = offset ?? 0;
+        return pageSize is >= 1 and <= DefaultListSize
+            && pageOffset is >= 0 and <= MaxListOffset;
+    }
+
+    private static IResult InvalidListPage() =>
+        Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["pagination"] = [$"Limit must be 1 to {DefaultListSize} and offset must be 0 to {MaxListOffset}."]
+        });
 
     private static void ValidateName(string? name, Dictionary<string, string[]> errors)
     {

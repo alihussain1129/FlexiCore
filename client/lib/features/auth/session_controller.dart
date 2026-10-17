@@ -1,3 +1,5 @@
+// ignore_for_file: prefer_initializing_formals
+
 import 'package:flutter/foundation.dart';
 
 import '../../core/api_client.dart';
@@ -12,9 +14,9 @@ class SessionController extends ChangeNotifier {
     required AuthService auth,
     required ApiClient api,
     required TokenStorage storage,
-  })  : _auth = auth,
-        _api = api,
-        _storage = storage;
+  }) : _auth = auth,
+       _api = api,
+       _storage = storage;
 
   final AuthService _auth;
   final ApiClient _api;

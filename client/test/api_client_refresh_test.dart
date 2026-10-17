@@ -8,15 +8,17 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 http.Response _json(int status, Object body) => http.Response(
-      jsonEncode(body), status,
-      headers: {'content-type': 'application/json'});
+  jsonEncode(body),
+  status,
+  headers: {'content-type': 'application/json'},
+);
 
 Map<String, dynamic> _tokens(String access, String refresh) => {
-      'accessToken': access,
-      'tokenType': 'Bearer',
-      'expiresIn': 900,
-      'refreshToken': refresh,
-    };
+  'accessToken': access,
+  'tokenType': 'Bearer',
+  'expiresIn': 900,
+  'refreshToken': refresh,
+};
 
 void main() {
   late InMemoryTokenStorage storage;
@@ -47,7 +49,9 @@ void main() {
     final mock = MockClient((request) async {
       if (request.url.path == '/api/v1/auth/refresh') {
         refreshCalls++;
-        refreshTokensSeen.add(jsonDecode(request.body)['refreshToken'] as String);
+        refreshTokensSeen.add(
+          jsonDecode(request.body)['refreshToken'] as String,
+        );
         await gate.future; // hold the refresh open so both callers overlap
         return _json(200, _tokens('a1', 'r1'));
       }

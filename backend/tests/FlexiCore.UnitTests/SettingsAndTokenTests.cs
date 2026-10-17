@@ -92,6 +92,14 @@ public class IdentitySettingsTests
     [Fact]
     public void Registration_can_be_enabled_explicitly_outside_development() =>
         Assert.True(IdentitySettings.Load(TestConfig.Build(("Registration:Enabled", "true")), isDevelopment: false).RegistrationEnabled);
+
+    [Fact]
+    public void Local_deployment_disables_public_registration_even_when_explicitly_enabled() =>
+        Assert.False(IdentitySettings.Load(
+            TestConfig.Build(
+                ("Deployment:Mode", "Local"),
+                ("Registration:Enabled", "true")),
+            isDevelopment: false).RegistrationEnabled);
 }
 
 public class TokenServiceTests

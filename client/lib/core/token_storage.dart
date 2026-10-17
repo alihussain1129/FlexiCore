@@ -11,7 +11,7 @@ abstract class TokenStorage {
 /// Production storage backed by the operating system's secure store.
 class SecureTokenStorage implements TokenStorage {
   SecureTokenStorage([FlutterSecureStorage? storage])
-      : _storage = storage ?? const FlutterSecureStorage();
+    : _storage = storage ?? const FlutterSecureStorage();
 
   static const _refreshKey = 'flexicore.refresh_token';
   final FlutterSecureStorage _storage;

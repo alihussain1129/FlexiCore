@@ -1,6 +1,9 @@
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using FlexiCore.Identity.Security;
+using FlexiCore.Identity.Settings;
+using Npgsql;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace FlexiCore.IntegrationTests.Infrastructure;
@@ -17,6 +20,23 @@ internal static class Scenario
         PostgresFixture postgres, string rateLimitPerMinute = "100000", Action<IServiceCollection>? configureServices = null)
     {
         var app = await IdentityTestApp.StartAsync(postgres, "true", rateLimitPerMinute, configureServices);
+        if (string.Equals(
+                Environment.GetEnvironmentVariable("Deployment__Mode"), "Local", StringComparison.OrdinalIgnoreCase))
+        {
+            var normalized = EmailRules.Normalize(Email);
+            var passwordHash = new PasswordService(IdentitySettings.DefaultPbkdf2Iterations).Hash(Password);
+            await using var connection = new NpgsqlConnection(app.Db.OwnerConnectionString);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "insert into identity.users (email, email_normalized, password_hash) values (@email, @normalized, @hash)",
+                connection);
+            command.Parameters.AddWithValue("email", Email);
+            command.Parameters.AddWithValue("normalized", normalized);
+            command.Parameters.AddWithValue("hash", passwordHash);
+            await command.ExecuteNonQueryAsync();
+            return app;
+        }
+
         var register = await app.RegisterAsync(Email, Password);
         Assert.Equal(HttpStatusCode.Created, register.StatusCode);
         return app;

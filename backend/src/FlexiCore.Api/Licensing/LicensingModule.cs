@@ -1,5 +1,6 @@
 using System.Threading.RateLimiting;
 using FlexiCore.Licensing;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
@@ -34,7 +35,16 @@ public static class LicensingModule
 
         services.AddSingleton<ILicenseStore>(_ => new FileLicenseStore(settings.LicenseDirectory!));
         services.AddSingleton(sp => new LicenseVerifier(ProductionKeyLoader.Load(), sp.GetRequiredService<TimeProvider>()));
-        services.AddSingleton<LicenseService>();
+        var requireBinding = true;
+        var rawBinding = configuration["License:RequireBinding"];
+        if (!string.IsNullOrEmpty(rawBinding) && !bool.TryParse(rawBinding, out requireBinding))
+            throw new InvalidOperationException("License:RequireBinding must be true or false.");
+        services.AddSingleton(sp => new LicenseService(
+            sp.GetRequiredService<ILicenseStore>(),
+            sp.GetRequiredService<LicenseVerifier>(),
+            sp.GetRequiredService<TimeProvider>(),
+            new MachineInstallationIdentity(),
+            requireBinding));
         LocalActivationAuthorization.Register(services);
 
         // Adds a policy only; the 429 handler is the global one registered by the Identity module.
@@ -57,6 +67,13 @@ public static class LicensingModule
         });
 
         return services;
+    }
+
+    /// <summary>Local mode: blocks everything but health, license and OpenAPI routes until a valid license is installed. Hosted mode: no-op.</summary>
+    public static IApplicationBuilder UseLicenseEnforcement(this IApplicationBuilder app)
+    {
+        var settings = app.ApplicationServices.GetRequiredService<DeploymentSettings>();
+        return settings.Mode == DeploymentMode.Local ? app.UseMiddleware<LicenseEnforcementMiddleware>() : app;
     }
 
     public static IEndpointRouteBuilder MapLicenseEndpoints(this IEndpointRouteBuilder endpoints)

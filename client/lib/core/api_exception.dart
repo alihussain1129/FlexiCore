@@ -15,10 +15,10 @@ class ApiException implements Exception {
 
   /// No HTTP response at all: server down, DNS, timeout.
   factory ApiException.network(Object error) => ApiException(
-        statusCode: 0,
-        title: 'Cannot reach the server',
-        detail: error.toString(),
-      );
+    statusCode: 0,
+    title: 'Cannot reach the server',
+    detail: error.toString(),
+  );
 
   /// Builds an exception from a non-success response. Never throws.
   factory ApiException.fromResponse(http.Response response) {

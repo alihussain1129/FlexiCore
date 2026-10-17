@@ -122,6 +122,12 @@ public sealed class TenancyApiTests(PostgresFixture postgres)
         Assert.Equal(orgId, listedOrg.GetProperty("id").GetGuid());
         Assert.Equal("owner", listedOrg.GetProperty("role").GetString());
 
+        var page = await GetListAsync(app, "/api/v1/organizations?limit=1&offset=0", token);
+        Assert.Single(page);
+        var invalidPage = await SendAsync(
+            app, HttpMethod.Get, "/api/v1/organizations?limit=101&offset=0", token);
+        Assert.Equal(HttpStatusCode.BadRequest, invalidPage.StatusCode);
+
         var created = await CreateCompanyAsync(app, token, orgId, "Acme Pharmacy", "acme-pharmacy", "pharmacy");
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var company = await IdentityTestApp.ReadJsonAsync(created);

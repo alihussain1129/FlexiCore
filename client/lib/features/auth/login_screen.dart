@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/api_exception.dart';
+import '../license/license_controller.dart';
 import 'register_screen.dart';
 import 'session_controller.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.notice});
+
+  final String? notice;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -42,6 +45,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final localMode = context.watch<LicenseController>().isLocalMode;
     return Scaffold(
       body: Center(
         child: ConstrainedBox(
@@ -52,7 +56,14 @@ class _LoginScreenState extends State<LoginScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text('FlexiCore', style: Theme.of(context).textTheme.headlineMedium),
+                Text(
+                  localMode ? 'Sign in to your local workspace' : 'FlexiCore',
+                  style: Theme.of(context).textTheme.headlineMedium,
+                ),
+                if (widget.notice != null) ...[
+                  const SizedBox(height: 12),
+                  Text(widget.notice!),
+                ],
                 const SizedBox(height: 24),
                 TextField(
                   controller: _email,
@@ -68,20 +79,29 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
-                  Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  Text(
+                    _error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
                 ],
                 const SizedBox(height: 20),
                 FilledButton(
                   onPressed: _busy ? null : _submit,
                   child: Text(_busy ? 'Signing in...' : 'Sign in'),
                 ),
-                TextButton(
-                  onPressed: _busy
-                      ? null
-                      : () => Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const RegisterScreen())),
-                  child: const Text('Create an account'),
-                ),
+                if (!localMode)
+                  TextButton(
+                    onPressed: _busy
+                        ? null
+                        : () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const RegisterScreen(),
+                            ),
+                          ),
+                    child: const Text('Create an account'),
+                  ),
               ],
             ),
           ),

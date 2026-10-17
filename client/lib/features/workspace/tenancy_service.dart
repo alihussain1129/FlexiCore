@@ -56,8 +56,14 @@ class TenancyService {
 
   final ApiClient _api;
 
-  Future<List<Organization>> listOrganizations() async {
-    final response = await _api.send('GET', '/api/v1/organizations/');
+  Future<List<Organization>> listOrganizations({
+    int limit = 100,
+    int offset = 0,
+  }) async {
+    final response = await _api.send(
+      'GET',
+      '/api/v1/organizations/?limit=$limit&offset=$offset',
+    );
     if (response.statusCode != 200) {
       throw ApiException.fromResponse(response);
     }
@@ -76,8 +82,11 @@ class TenancyService {
         .toList();
   }
 
-  Future<List<Company>> listCompanies() async {
-    final response = await _api.send('GET', '/api/v1/companies/');
+  Future<List<Company>> listCompanies({int limit = 100, int offset = 0}) async {
+    final response = await _api.send(
+      'GET',
+      '/api/v1/companies/?limit=$limit&offset=$offset',
+    );
     if (response.statusCode != 200) {
       throw ApiException.fromResponse(response);
     }
@@ -91,6 +100,46 @@ class TenancyService {
     return decoded
         .map((item) => Company.fromJson(Map<String, dynamic>.from(item as Map)))
         .toList();
+  }
+
+  Future<List<Organization>> listAllOrganizations({
+    int pageSize = 100,
+    int maxRows = 100000,
+  }) async {
+    final organizations = <Organization>[];
+    var offset = 0;
+    while (true) {
+      final page = await listOrganizations(limit: pageSize, offset: offset);
+      if (organizations.length + page.length > maxRows) {
+        throw ApiException(
+          statusCode: 413,
+          title: 'Organization export limit exceeded',
+        );
+      }
+      organizations.addAll(page);
+      if (page.length < pageSize) return organizations;
+      offset += page.length;
+    }
+  }
+
+  Future<List<Company>> listAllCompanies({
+    int pageSize = 100,
+    int maxRows = 100000,
+  }) async {
+    final companies = <Company>[];
+    var offset = 0;
+    while (true) {
+      final page = await listCompanies(limit: pageSize, offset: offset);
+      if (companies.length + page.length > maxRows) {
+        throw ApiException(
+          statusCode: 413,
+          title: 'Company export limit exceeded',
+        );
+      }
+      companies.addAll(page);
+      if (page.length < pageSize) return companies;
+      offset += page.length;
+    }
   }
 
   Future<Organization> createOrganization({

@@ -1,3 +1,5 @@
+// ignore_for_file: prefer_initializing_formals
+
 import 'package:flutter/foundation.dart';
 
 import '../../core/api_exception.dart';
@@ -30,6 +32,8 @@ class LicenseController extends ChangeNotifier {
   bool _busy = false;
 
   LicenseUiState get state => _state;
+  LicenseStatus? get status => _status;
+  bool get isLocalMode => _status?.mode == 'local' && _status!.licenseRequired;
   String? get problem => _problem;
   String? get importError => _importError;
   bool get busy => _busy;
@@ -121,11 +125,14 @@ class LicenseController extends ChangeNotifier {
     switch (status.gate) {
       case LicenseGate.proceed:
         _state = LicenseUiState.ready;
+        break;
       case LicenseGate.needsLicense:
         _state = LicenseUiState.needsLicense;
+        break;
       case LicenseGate.unavailable:
         _state = LicenseUiState.unavailable;
         _problem = 'This copy of FlexiCore cannot verify licenses right now. Contact the vendor, or try again later.';
+        break;
     }
   }
 

@@ -44,7 +44,10 @@ public sealed class IdentitySettings
         if (permit is < 1 or > 1_000_000)
             throw new InvalidOperationException("Identity:RateLimit:PermitPerMinute must be between 1 and 1000000.");
 
-        var enabled = configuration.GetValue<bool?>("Registration:Enabled") ?? isDevelopment;
+        var isLocalDeployment = string.Equals(
+            configuration["Deployment:Mode"], "Local", StringComparison.OrdinalIgnoreCase);
+        var enabled = !isLocalDeployment
+            && (configuration.GetValue<bool?>("Registration:Enabled") ?? isDevelopment);
         return new IdentitySettings
         {
             Pbkdf2Iterations = iterations,

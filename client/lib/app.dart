@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'core/appearance_controller.dart';
 import 'features/auth/login_screen.dart';
+import 'features/auth/local_setup_screen.dart';
 import 'features/auth/session_controller.dart';
 import 'features/license/license_controller.dart';
 import 'features/license/license_screen.dart';
@@ -84,6 +85,10 @@ class _Root extends StatelessWidget {
         return const LicenseScreen();
       case LicenseUiState.ready:
         break;
+    }
+
+    if (license.isLocalMode && session.status == SessionStatus.signedOut) {
+      return const LocalSetupScreen();
     }
 
     switch (session.status) {

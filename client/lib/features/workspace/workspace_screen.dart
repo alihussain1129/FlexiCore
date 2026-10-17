@@ -1,10 +1,16 @@
+import 'dart:io';
+
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/api_client.dart';
 import '../../core/api_exception.dart';
 import '../../core/appearance_controller.dart';
 import '../auth/session_controller.dart';
+import 'import_mapping_dialog.dart';
+import 'spreadsheet_exchange.dart';
 import 'tenancy_service.dart';
 
 class WorkspaceScreen extends StatefulWidget {
@@ -23,22 +29,17 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   String? _error;
   bool _loading = true;
   bool _working = false;
-  int _selectedModule = 0;
+  bool _hasMoreOrganizations = false;
+  bool _hasMoreCompanies = false;
+  String _search = '';
+  String _sortColumn = 'name';
+  bool _sortAscending = true;
+  int _page = 0;
+  final Set<String> _selectedRows = {};
+  static const _pageSize = 10;
 
   static const _modules = <_WorkspaceModule>[
     _WorkspaceModule('Overview', Icons.dashboard_outlined),
-    _WorkspaceModule('Sales', Icons.point_of_sale_outlined),
-    _WorkspaceModule('Purchases', Icons.shopping_cart_outlined),
-    _WorkspaceModule('Inventory', Icons.inventory_2_outlined),
-    _WorkspaceModule('Products', Icons.category_outlined),
-    _WorkspaceModule('Customers', Icons.people_outline),
-    _WorkspaceModule('Suppliers', Icons.local_shipping_outlined),
-    _WorkspaceModule('Accounting', Icons.account_balance_outlined),
-    _WorkspaceModule('Ledgers', Icons.menu_book_outlined),
-    _WorkspaceModule('Expenses', Icons.receipt_long_outlined),
-    _WorkspaceModule('Employees', Icons.badge_outlined),
-    _WorkspaceModule('Reports', Icons.bar_chart_outlined),
-    _WorkspaceModule('Settings', Icons.settings_outlined),
   ];
 
   @override
@@ -101,6 +102,10 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
         _allCompanies = companies;
         _selectedOrganizationId = nextOrg;
         _selectedCompanyId = nextCompany;
+        _hasMoreOrganizations = organizations.length == 100;
+        _hasMoreCompanies = companies.length == 100;
+        _selectedRows.clear();
+        _page = 0;
         _loading = false;
       });
     } on ApiException catch (e) {
@@ -117,6 +122,431 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
           _loading = false;
         });
       }
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (_working || (!_hasMoreOrganizations && !_hasMoreCompanies)) return;
+    setState(() => _working = true);
+    try {
+      final organizationPage = _hasMoreOrganizations
+          ? await _service.listOrganizations(offset: _organizations.length)
+          : const <Organization>[];
+      final companyPage = _hasMoreCompanies
+          ? await _service.listCompanies(offset: _allCompanies.length)
+          : const <Company>[];
+      if (!mounted) return;
+      setState(() {
+        _organizations.addAll(organizationPage);
+        _allCompanies.addAll(companyPage);
+        _hasMoreOrganizations = organizationPage.length == 100;
+        _hasMoreCompanies = companyPage.length == 100;
+        _page = 0;
+      });
+    } on ApiException catch (error) {
+      if (mounted) _notice(error.message, error: true);
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  List<_WorkspaceDataRow> _rowsFor(
+    List<Organization> organizations,
+    List<Company> companies,
+  ) {
+    final organizationsById = {
+      for (final organization in organizations)
+        organization.id: organization.name,
+    };
+    return [
+      for (final organization in organizations)
+        _WorkspaceDataRow(
+          id: 'organization:${organization.id}',
+          type: 'Organization',
+          name: organization.name,
+          slug: organization.slug,
+          parent: '',
+          industry: '',
+          role: organization.role,
+        ),
+      for (final company in companies)
+        _WorkspaceDataRow(
+          id: 'company:${company.id}',
+          type: 'Company',
+          name: company.name,
+          slug: company.slug,
+          parent: organizationsById[company.organizationId] ?? '',
+          industry: company.industryKey,
+          role: company.role,
+        ),
+    ];
+  }
+
+  List<_WorkspaceDataRow> _visibleRows({
+    List<Organization>? organizations,
+    List<Company>? companies,
+    bool applySearch = true,
+  }) {
+    var rows = _rowsFor(
+      organizations ?? _organizations,
+      companies ?? _allCompanies,
+    );
+    final query = applySearch ? _search.trim().toLowerCase() : '';
+    if (query.isNotEmpty) {
+      rows = rows
+          .where((row) => row.values.join(' ').toLowerCase().contains(query))
+          .toList();
+    }
+    rows.sort((left, right) {
+      final comparison = left
+          .value(_sortColumn)
+          .toLowerCase()
+          .compareTo(right.value(_sortColumn).toLowerCase());
+      return _sortAscending ? comparison : -comparison;
+    });
+    return rows;
+  }
+
+  void _sortRows(String column) {
+    setState(() {
+      if (_sortColumn == column) {
+        _sortAscending = !_sortAscending;
+      } else {
+        _sortColumn = column;
+        _sortAscending = true;
+      }
+      _page = 0;
+    });
+  }
+
+  List<_WorkspaceDataRow> get _currentPageRows {
+    final rows = _visibleRows();
+    final start = _page * _pageSize;
+    return rows.skip(start).take(_pageSize).toList();
+  }
+
+  Future<void> _copyRows(List<_WorkspaceDataRow> rows) async {
+    if (rows.isEmpty) {
+      _notice('There are no rows to copy.', error: true);
+      return;
+    }
+    const headers = [
+      'Type',
+      'Name',
+      'Slug',
+      'Organization',
+      'Industry key',
+      'Role',
+    ];
+    final text = SpreadsheetExchange.encodeTsv([
+      headers,
+      for (final row in rows) row.values,
+    ]);
+    await Clipboard.setData(ClipboardData(text: text));
+    if (mounted) _notice('${rows.length} row(s) copied as tab-separated text.');
+  }
+
+  Future<void> _copySummary() async {
+    const headers = ['Summary', 'Value'];
+    final text = SpreadsheetExchange.encodeTsv([
+      headers,
+      ['Organizations', '${_organizations.length}'],
+      ['Companies', '${_companies.length}'],
+      ['Organization role', _selectedOrganization?.role ?? 'Not set'],
+      ['Company role', _selectedCompany?.role ?? 'Not set'],
+    ]);
+    await Clipboard.setData(ClipboardData(text: text));
+    if (mounted) _notice('Workspace summary copied.');
+  }
+
+  Future<void> _exportData({
+    required bool allRecords,
+    required bool csv,
+  }) async {
+    setState(() => _working = true);
+    try {
+      final organizations = await _service.listAllOrganizations();
+      final companies = await _service.listAllCompanies();
+      final rows = _visibleRows(
+        organizations: organizations,
+        companies: companies,
+        applySearch: !allRecords,
+      );
+      final table = <List<String>>[
+        const ['Type', 'Name', 'Slug', 'Organization', 'Industry key', 'Role'],
+        for (final row in rows) row.values,
+      ];
+      final extension = csv ? 'csv' : 'xlsx';
+      final location = await getSaveLocation(
+        suggestedName:
+            'flexicore-workspace${allRecords ? '-all' : ''}.$extension',
+        acceptedTypeGroups: [
+          XTypeGroup(
+            label: csv ? 'CSV' : 'Excel workbook',
+            extensions: [extension],
+          ),
+        ],
+      );
+      if (location == null) return;
+
+      final file = File(location.path);
+      if (csv) {
+        await file.writeAsString(
+          SpreadsheetExchange.encodeCsv(table),
+          flush: true,
+        );
+      } else {
+        await file.writeAsBytes(
+          SpreadsheetExchange.encodeXlsx(
+            sheetName: 'Workspace records',
+            headers: table.first,
+            rows: table.skip(1).toList(),
+          ),
+          flush: true,
+        );
+      }
+      if (mounted) {
+        _notice('${rows.length} authorized row(s) exported to $extension.');
+      }
+    } on ApiException catch (error) {
+      if (mounted) _notice(error.message, error: true);
+    } on FormatException catch (error) {
+      if (mounted) _notice(error.message, error: true);
+    } on IOException {
+      if (mounted) _notice('The export file could not be saved.', error: true);
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  Future<void> _exportDocx({required bool allRecords}) async {
+    setState(() => _working = true);
+    try {
+      final organizations = await _service.listAllOrganizations();
+      final companies = await _service.listAllCompanies();
+      final rows = _visibleRows(
+        organizations: organizations,
+        companies: companies,
+        applySearch: !allRecords,
+      );
+      final table = <List<String>>[
+        const ['Type', 'Name', 'Slug', 'Organization', 'Industry key', 'Role'],
+        for (final row in rows) row.values,
+      ];
+      final location = await getSaveLocation(
+        suggestedName: 'flexicore-workspace${allRecords ? '-all' : ''}.docx',
+        acceptedTypeGroups: const [
+          XTypeGroup(label: 'Word document', extensions: ['docx']),
+        ],
+      );
+      if (location == null) return;
+      await File(location.path).writeAsBytes(
+        SpreadsheetExchange.encodeDocx(
+          title: 'FlexiCore workspace directory',
+          headers: table.first,
+          rows: table.skip(1).toList(),
+        ),
+        flush: true,
+      );
+      if (mounted) {
+        _notice('${rows.length} authorized row(s) exported to DOCX.');
+      }
+    } on ApiException catch (error) {
+      if (mounted) _notice(error.message, error: true);
+    } on IOException {
+      if (mounted) {
+        _notice('The Word document could not be saved.', error: true);
+      }
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  void _onExchangeAction(String action) {
+    switch (action) {
+      case 'import-organizations':
+        _importData(ImportEntity.organizations);
+        return;
+      case 'import-companies':
+        _importData(ImportEntity.companies);
+        return;
+      case 'template-organizations':
+        _saveTemplate(ImportEntity.organizations);
+        return;
+      case 'template-companies':
+        _saveTemplate(ImportEntity.companies);
+        return;
+      case 'export-filtered-xlsx':
+        _exportData(allRecords: false, csv: false);
+        return;
+      case 'export-all-xlsx':
+        _exportData(allRecords: true, csv: false);
+        return;
+      case 'export-filtered-csv':
+        _exportData(allRecords: false, csv: true);
+        return;
+      case 'export-all-csv':
+        _exportData(allRecords: true, csv: true);
+        return;
+      case 'export-filtered-docx':
+        _exportDocx(allRecords: false);
+        return;
+      case 'export-all-docx':
+        _exportDocx(allRecords: true);
+        return;
+    }
+  }
+
+  Future<void> _importData(ImportEntity entity) async {
+    if (entity == ImportEntity.companies && _selectedOrganizationId == null) {
+      _notice(
+        'Select an organization before importing companies.',
+        error: true,
+      );
+      return;
+    }
+    const group = XTypeGroup(
+      label: 'Excel or CSV data',
+      extensions: ['xlsx', 'csv'],
+    );
+    final file = await openFile(acceptedTypeGroups: [group]);
+    if (file == null || !mounted) return;
+    try {
+      if (await file.length() > SpreadsheetExchange.maxFileBytes) {
+        throw const FormatException(
+          'The selected file exceeds the 20 MB limit.',
+        );
+      }
+      final bytes = await file.readAsBytes();
+      final grid = file.name.toLowerCase().endsWith('.csv')
+          ? SpreadsheetExchange.decodeCsv(bytes)
+          : SpreadsheetExchange.decodeXlsx(bytes);
+      if (!mounted) return;
+      setState(() => _working = true);
+      final existingSlugs = entity == ImportEntity.organizations
+          ? (await _service.listAllOrganizations())
+                .map((item) => item.slug.toLowerCase())
+                .toSet()
+          : (await _service.listAllCompanies())
+                .where((item) => item.organizationId == _selectedOrganizationId)
+                .map((item) => item.slug.toLowerCase())
+                .toSet();
+      if (!mounted) return;
+      final plan = await showDialog<ImportMappingResult>(
+        context: context,
+        builder: (context) => ImportMappingDialog(
+          grid: grid,
+          entity: entity,
+          existingSlugs: existingSlugs,
+        ),
+      );
+      if (plan == null || !mounted) return;
+
+      final rowErrors = [
+        for (final row in plan.invalidRows)
+          'Row ${row.sourceRow}: ${row.errors.join(' ')}',
+      ];
+      var imported = 0;
+      for (final row in plan.validRows) {
+        try {
+          if (entity == ImportEntity.organizations) {
+            await _service.createOrganization(
+              name: row.values['name']!,
+              slug: row.values['slug']!,
+            );
+          } else {
+            await _service.createCompany(
+              organizationId: _selectedOrganizationId!,
+              name: row.values['name']!,
+              slug: row.values['slug']!,
+              industryKey: row.values['industryKey']!,
+            );
+          }
+          imported++;
+        } on ApiException catch (error) {
+          rowErrors.add('Row ${row.sourceRow}: ${error.message}');
+        } on Exception {
+          rowErrors.add(
+            'Row ${row.sourceRow}: The server returned an unexpected response.',
+          );
+        }
+      }
+      await _load();
+      if (mounted) await _showImportResults(imported, rowErrors);
+    } on FormatException catch (error) {
+      if (mounted) _notice(error.message, error: true);
+    } on ApiException catch (error) {
+      if (mounted) _notice(error.message, error: true);
+    } on IOException {
+      if (mounted) _notice('The import file could not be read.', error: true);
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  Future<void> _showImportResults(int imported, List<String> errors) async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Import results'),
+        content: SizedBox(
+          width: 600,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '$imported record(s) created; ${errors.length} row(s) not imported.',
+              ),
+              if (errors.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 240,
+                  child: ListView(
+                    children: [
+                      for (final error in errors)
+                        ListTile(dense: true, title: Text(error)),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _saveTemplate(ImportEntity entity) async {
+    final organization = entity == ImportEntity.organizations;
+    final headers = organization
+        ? SpreadsheetExchange.organizationHeaders
+        : SpreadsheetExchange.companyHeaders;
+    final bytes = SpreadsheetExchange.encodeXlsx(
+      sheetName: organization ? 'Organizations' : 'Companies',
+      headers: headers,
+      rows: const [],
+    );
+    final location = await getSaveLocation(
+      suggestedName: organization
+          ? 'flexicore-organizations-template.xlsx'
+          : 'flexicore-companies-template.xlsx',
+      acceptedTypeGroups: const [
+        XTypeGroup(label: 'Excel workbook', extensions: ['xlsx']),
+      ],
+    );
+    if (location == null) return;
+    try {
+      await File(location.path).writeAsBytes(bytes, flush: true);
+      if (mounted) _notice('Import template saved.');
+    } on IOException {
+      if (mounted) _notice('The template could not be saved.', error: true);
     }
   }
 
@@ -329,6 +759,55 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
             onPressed: _loading || _working ? null : _load,
             icon: const Icon(Icons.refresh),
           ),
+          PopupMenuButton<String>(
+            tooltip: 'Import and export data',
+            icon: const Icon(Icons.import_export),
+            onSelected: _onExchangeAction,
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'import-organizations',
+                child: Text('Import organizations...'),
+              ),
+              PopupMenuItem(
+                value: 'import-companies',
+                child: Text('Import companies...'),
+              ),
+              PopupMenuDivider(),
+              PopupMenuItem(
+                value: 'template-organizations',
+                child: Text('Save organization template...'),
+              ),
+              PopupMenuItem(
+                value: 'template-companies',
+                child: Text('Save company template...'),
+              ),
+              PopupMenuDivider(),
+              PopupMenuItem(
+                value: 'export-filtered-xlsx',
+                child: Text('Export filtered records (.xlsx)'),
+              ),
+              PopupMenuItem(
+                value: 'export-all-xlsx',
+                child: Text('Export all authorized records (.xlsx)'),
+              ),
+              PopupMenuItem(
+                value: 'export-filtered-csv',
+                child: Text('Export filtered records (.csv)'),
+              ),
+              PopupMenuItem(
+                value: 'export-all-csv',
+                child: Text('Export all authorized records (.csv)'),
+              ),
+              PopupMenuItem(
+                value: 'export-filtered-docx',
+                child: Text('Export filtered workspace report (.docx)'),
+              ),
+              PopupMenuItem(
+                value: 'export-all-docx',
+                child: Text('Export all authorized workspace data (.docx)'),
+              ),
+            ],
+          ),
           IconButton(
             tooltip: context.watch<AppearanceController>().isDark
                 ? 'Switch to light theme'
@@ -427,14 +906,13 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 3),
                 child: ListTile(
-                  selected: index == _selectedModule,
+                  selected: true,
                   leading: Icon(module.icon),
                   title: Text(module.label),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                   onTap: () {
-                    setState(() => _selectedModule = index);
                     if (MediaQuery.sizeOf(context).width < 1050) {
                       Navigator.of(context).pop();
                     }
@@ -493,7 +971,6 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     final theme = Theme.of(context);
     final organization = _selectedOrganization;
     final company = _selectedCompany;
-    final module = _modules[_selectedModule];
 
     return SelectionArea(
       child: SingleChildScrollView(
@@ -514,18 +991,14 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _selectedModule == 0
-                              ? 'Business overview'
-                              : module.label,
+                          'Business setup',
                           style: theme.textTheme.headlineMedium?.copyWith(
                             fontWeight: FontWeight.w700,
                           ),
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          _selectedModule == 0
-                              ? 'Your business workspace at a glance.'
-                              : 'Manage ${module.label.toLowerCase()} in your workspace.',
+                          'Manage your organizations and companies.',
                           style: theme.textTheme.bodyLarge?.copyWith(
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
@@ -553,72 +1026,245 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                 const SizedBox(height: 28),
                 _workspaceSelectors(),
                 const SizedBox(height: 24),
-                if (_selectedModule == 0) ...[
-                  Text('Workspace summary', style: theme.textTheme.titleLarge),
-                  const SizedBox(height: 12),
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final count = constraints.maxWidth >= 900
-                          ? 4
-                          : constraints.maxWidth >= 560
-                          ? 2
-                          : 1;
-                      final cardWidth =
-                          (constraints.maxWidth - (count - 1) * 12) / count;
-                      return Wrap(
-                        spacing: 12,
-                        runSpacing: 12,
-                        children: [
-                          SizedBox(
-                            width: cardWidth,
-                            child: _summaryCard(
-                              'Organizations',
-                              '${_organizations.length}',
-                              Icons.apartment_outlined,
-                              'Available to your account',
-                            ),
+                Text('Workspace summary', style: theme.textTheme.titleLarge),
+                const SizedBox(height: 12),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final count = constraints.maxWidth >= 900
+                        ? 4
+                        : constraints.maxWidth >= 560
+                        ? 2
+                        : 1;
+                    final cardWidth =
+                        (constraints.maxWidth - (count - 1) * 12) / count;
+                    return Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        SizedBox(
+                          width: cardWidth,
+                          child: _summaryCard(
+                            'Organizations',
+                            '${_organizations.length}',
+                            Icons.apartment_outlined,
+                            'Available to your account',
                           ),
-                          SizedBox(
-                            width: cardWidth,
-                            child: _summaryCard(
-                              'Companies',
-                              '${_companies.length}',
-                              Icons.business_outlined,
-                              'In the selected organization',
-                            ),
+                        ),
+                        SizedBox(
+                          width: cardWidth,
+                          child: _summaryCard(
+                            'Companies',
+                            '${_companies.length}',
+                            Icons.business_outlined,
+                            'In the selected organization',
                           ),
-                          SizedBox(
-                            width: cardWidth,
-                            child: _summaryCard(
-                              'Organization role',
-                              organization?.role ?? 'Not set',
-                              Icons.admin_panel_settings_outlined,
-                              'Access granted by membership',
-                            ),
+                        ),
+                        SizedBox(
+                          width: cardWidth,
+                          child: _summaryCard(
+                            'Organization role',
+                            organization?.role ?? 'Not set',
+                            Icons.admin_panel_settings_outlined,
+                            'Access granted by membership',
                           ),
-                          SizedBox(
-                            width: cardWidth,
-                            child: _summaryCard(
-                              'Company role',
-                              company?.role ?? 'Not set',
-                              Icons.verified_user_outlined,
-                              'Access granted by membership',
-                            ),
+                        ),
+                        SizedBox(
+                          width: cardWidth,
+                          child: _summaryCard(
+                            'Company role',
+                            company?.role ?? 'Not set',
+                            Icons.verified_user_outlined,
+                            'Access granted by membership',
                           ),
-                        ],
-                      );
-                    },
+                        ),
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: _copySummary,
+                    icon: const Icon(Icons.copy_outlined),
+                    label: const Text('Copy summary'),
                   ),
-                  const SizedBox(height: 28),
-                  Text('Get started', style: theme.textTheme.titleLarge),
-                  const SizedBox(height: 12),
-                  _gettingStarted(),
-                  const SizedBox(height: 28),
-                  Text('Business modules', style: theme.textTheme.titleLarge),
-                  const SizedBox(height: 12),
-                  _moduleGrid(),
-                ] else
-                  _moduleUnavailable(module),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Organizations and companies',
+                  style: theme.textTheme.titleLarge,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  decoration: const InputDecoration(
+                    labelText: 'Search authorized records',
+                    prefixIcon: Icon(Icons.search),
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (value) => setState(() {
+                    _search = value;
+                    _page = 0;
+                  }),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: _selectedRows.isEmpty
+                          ? null
+                          : () => _copyRows(
+                              _visibleRows()
+                                  .where(
+                                    (row) => _selectedRows.contains(row.id),
+                                  )
+                                  .toList(),
+                            ),
+                      icon: const Icon(Icons.copy),
+                      label: Text('Copy selected (${_selectedRows.length})'),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => _copyRows(_visibleRows()),
+                      icon: const Icon(Icons.table_view_outlined),
+                      label: Text('Copy filtered (${_visibleRows().length})'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                if (_visibleRows().isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Center(
+                      child: Text(
+                        _organizations.isEmpty && _allCompanies.isEmpty
+                            ? 'No authorized organizations or companies yet. Create one to begin.'
+                            : 'No authorized records match this search.',
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  )
+                else
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: DataTable(
+                          sortColumnIndex: const {
+                            'type': 1,
+                            'name': 2,
+                            'slug': 3,
+                            'parent': 4,
+                            'industry': 5,
+                            'role': 6,
+                          }[_sortColumn],
+                          sortAscending: _sortAscending,
+                          onSelectAll: (selected) => setState(() {
+                            if (selected == true) {
+                              _selectedRows.addAll(
+                                _currentPageRows.map((row) => row.id),
+                              );
+                            } else {
+                              _selectedRows.removeAll(
+                                _currentPageRows.map((row) => row.id),
+                              );
+                            }
+                          }),
+                          columns: [
+                            DataColumn(
+                              label: const Text('Type'),
+                              onSort: (_, _) => _sortRows('type'),
+                            ),
+                            DataColumn(
+                              label: const Text('Name'),
+                              onSort: (_, _) => _sortRows('name'),
+                            ),
+                            DataColumn(
+                              label: const Text('Slug'),
+                              onSort: (_, _) => _sortRows('slug'),
+                            ),
+                            DataColumn(
+                              label: const Text('Organization'),
+                              onSort: (_, _) => _sortRows('parent'),
+                            ),
+                            DataColumn(
+                              label: const Text('Industry key'),
+                              onSort: (_, _) => _sortRows('industry'),
+                            ),
+                            DataColumn(
+                              label: const Text('Role'),
+                              onSort: (_, _) => _sortRows('role'),
+                            ),
+                            const DataColumn(label: Text('')),
+                          ],
+                          rows: [
+                            for (final row in _currentPageRows)
+                              DataRow(
+                                selected: _selectedRows.contains(row.id),
+                                onSelectChanged: (selected) => setState(() {
+                                  if (selected == true) {
+                                    _selectedRows.add(row.id);
+                                  } else {
+                                    _selectedRows.remove(row.id);
+                                  }
+                                }),
+                                cells: [
+                                  DataCell(Text(row.type)),
+                                  DataCell(Text(row.name)),
+                                  DataCell(SelectableText(row.slug)),
+                                  DataCell(Text(row.parent)),
+                                  DataCell(Text(row.industry)),
+                                  DataCell(Text(row.role)),
+                                  DataCell(
+                                    IconButton(
+                                      tooltip: 'Copy row',
+                                      onPressed: () => _copyRows([row]),
+                                      icon: const Icon(Icons.copy_outlined),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                          ],
+                        ),
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Text(
+                            'Page ${_page + 1} of ${(_visibleRows().length / _pageSize).ceil().clamp(1, 100000)} · '
+                            '${_visibleRows().length} loaded record(s)',
+                          ),
+                          IconButton(
+                            tooltip: 'Previous page',
+                            onPressed: _page == 0
+                                ? null
+                                : () => setState(() => _page--),
+                            icon: const Icon(Icons.chevron_left),
+                          ),
+                          IconButton(
+                            tooltip: 'Next page',
+                            onPressed:
+                                (_page + 1) * _pageSize >= _visibleRows().length
+                                ? null
+                                : () => setState(() => _page++),
+                            icon: const Icon(Icons.chevron_right),
+                          ),
+                          if (_hasMoreOrganizations || _hasMoreCompanies)
+                            TextButton(
+                              onPressed: _working ? null : _loadMore,
+                              child: Text(
+                                _working ? 'Loading...' : 'Load more',
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                const SizedBox(height: 28),
+                Text('Get started', style: theme.textTheme.titleLarge),
+                const SizedBox(height: 12),
+                _gettingStarted(),
                 const SizedBox(height: 36),
                 Text(
                   'FlexiCore • Business workspace',
@@ -854,102 +1500,6 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
       ],
     );
   }
-
-  Widget _moduleGrid() {
-    final modules = _modules.skip(1).toList();
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final count = constraints.maxWidth >= 1000
-            ? 4
-            : constraints.maxWidth >= 650
-            ? 3
-            : constraints.maxWidth >= 400
-            ? 2
-            : 1;
-        final width = (constraints.maxWidth - (count - 1) * 12) / count;
-        return Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: modules.map((module) {
-            return SizedBox(
-              width: width,
-              child: Card(
-                clipBehavior: Clip.antiAlias,
-                child: InkWell(
-                  onTap: () => setState(
-                    () => _selectedModule = _modules.indexOf(module),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      children: [
-                        Icon(
-                          module.icon,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            module.label,
-                            style: Theme.of(context).textTheme.titleSmall,
-                          ),
-                        ),
-                        const Icon(Icons.arrow_forward_ios, size: 14),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            );
-          }).toList(),
-        );
-      },
-    );
-  }
-
-  Widget _moduleUnavailable(_WorkspaceModule module) {
-    final theme = Theme.of(context);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 600),
-            child: Column(
-              children: [
-                Icon(module.icon, size: 48, color: theme.colorScheme.primary),
-                const SizedBox(height: 16),
-                Text(
-                  '${module.label} workspace',
-                  style: theme.textTheme.headlineSmall,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'This section is reserved for the ${module.label.toLowerCase()} '
-                  'workflow. The backend currently exposes authentication and '
-                  'organization/company management, but not the API operations '
-                  'required to save and retrieve ${module.label.toLowerCase()} data.',
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'No sample transactions or invented totals are being shown.',
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 20),
-                OutlinedButton.icon(
-                  onPressed: () => setState(() => _selectedModule = 0),
-                  icon: const Icon(Icons.arrow_back),
-                  label: const Text('Return to overview'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class _WorkspaceModule {
@@ -957,4 +1507,36 @@ class _WorkspaceModule {
 
   final String label;
   final IconData icon;
+}
+
+class _WorkspaceDataRow {
+  const _WorkspaceDataRow({
+    required this.id,
+    required this.type,
+    required this.name,
+    required this.slug,
+    required this.parent,
+    required this.industry,
+    required this.role,
+  });
+
+  final String id;
+  final String type;
+  final String name;
+  final String slug;
+  final String parent;
+  final String industry;
+  final String role;
+
+  List<String> get values => [type, name, slug, parent, industry, role];
+
+  String value(String column) => switch (column) {
+    'type' => type,
+    'name' => name,
+    'slug' => slug,
+    'parent' => parent,
+    'industry' => industry,
+    'role' => role,
+    _ => name,
+  };
 }

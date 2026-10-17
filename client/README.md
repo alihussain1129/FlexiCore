@@ -1,17 +1,20 @@
-# flexicore_client
+# FlexiCore Flutter client
 
-A new Flutter project.
+This Flutter application provides the FlexiCore authentication, Local activation and organization/company workspace flows. It currently does not contain transactional ERP modules.
 
-## Getting Started
+For current implementation status, supported spreadsheet/document exchange, setup, and backup/recovery instructions, see the repository [README](../README.md).
 
-This project is a starting point for a Flutter application.
+Run the Windows client from this directory:
 
-A few resources to get you started if this is your first Flutter project:
+```powershell
+flutter run -d windows --dart-define=API_BASE_URL=http://localhost:5265
+```
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+Run client checks from this directory:
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```powershell
+dart format --output=none --set-exit-if-changed lib test
+flutter analyze
+flutter test
+flutter build windows
+```

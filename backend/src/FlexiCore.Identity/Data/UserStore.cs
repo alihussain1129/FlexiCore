@@ -61,6 +61,56 @@ public sealed class UserStore(NpgsqlDataSource dataSource, AuditWriter audit)
     }
 
     /// <summary>
+    /// Atomically creates the first local owner account. A transaction-scoped advisory lock serializes setup
+    /// attempts across API instances; once any user exists, setup cannot create another account.
+    /// </summary>
+    public async Task<Guid?> TryCreateFirstAsync(
+        string email, string normalizedEmail, string passwordHash, string? correlationId, CancellationToken ct)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, ct);
+
+        await using (var setupLock = new NpgsqlCommand("select pg_advisory_xact_lock(731946201)", connection, transaction))
+            await setupLock.ExecuteNonQueryAsync(ct);
+
+        await using (var anyUsers = new NpgsqlCommand("select exists(select 1 from identity.users)", connection, transaction))
+        {
+            if ((bool)(await anyUsers.ExecuteScalarAsync(ct))!)
+                return null;
+        }
+
+        try
+        {
+            Guid id;
+            await using (var insert = new NpgsqlCommand(
+                "insert into identity.users (email, email_normalized, password_hash) values (@e, @n, @h) returning id",
+                connection, transaction))
+            {
+                insert.Parameters.AddWithValue("e", email);
+                insert.Parameters.AddWithValue("n", normalizedEmail);
+                insert.Parameters.AddWithValue("h", passwordHash);
+                id = (Guid)(await insert.ExecuteScalarAsync(ct))!;
+            }
+
+            await audit.WriteAsync(connection, transaction,
+                new AuditEvent("auth.local_setup", "success", id, "user", id.ToString(), correlationId), ct);
+            await transaction.CommitAsync(ct);
+            return id;
+        }
+        catch (PostgresException ex) when (
+            ex.SqlState == PostgresErrorCodes.UniqueViolation && ex.ConstraintName == "ux_users_email_normalized")
+        {
+            return null;
+        }
+    }
+
+    public async Task<bool> HasAnyUsersAsync(CancellationToken ct)
+    {
+        await using var command = dataSource.CreateCommand("select exists(select 1 from identity.users)");
+        return (bool)(await command.ExecuteScalarAsync(ct))!;
+    }
+
+    /// <summary>
     /// Counts a failed password attempt atomically, in one statement, so concurrent attempts cannot undercount.
     /// The counter lives on the user row, which is found through the normalized email, so casing or whitespace
     /// variants of an address all hit the same counter. An expired lock restarts the count at 1.

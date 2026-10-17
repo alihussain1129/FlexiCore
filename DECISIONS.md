@@ -2,6 +2,14 @@
 
 Each entry records what was decided, why, and any known limitation. Planned work is not listed here.
 
+## Current implementation snapshot
+
+This snapshot supersedes earlier phase notes where they describe the client or licensing as not yet implemented. FlexiCore currently has a Flutter Windows client, hosted identity and tenancy APIs, Local license enforcement and one-time local first-owner setup. Organization/company records are persisted in PostgreSQL. The client data-exchange workflow supports those records only; no transactional ERP modules or financial documents exist yet. See the root README for supported operations and current verification gaps.
+
+Local license activation requests can be copied or saved from the client and signed offline by the owner tool. No production public key set is embedded, so production Local activation is not ready. The license import endpoints currently do not implement owner-only authorization; the earlier “Temporary choices” warning remains applicable. Do not treat the current implementation as a completed commercial licensing model.
+
+The CSV/XLSX import and export and workspace-directory DOCX report are local client-side file operations over server-authorized organization/company data. Imports are create-only. The DOCX report is not a template for invoices, purchase documents or financial reports. Database backup and isolated restore instructions are in the root README; restore drills have not been qualified.
+
 ## D1. .NET 10 and a modular monolith
 The installed SDK is .NET 10. One deployable API process and one database; module boundaries are enforced by project structure and architecture tests rather than by separate services.
 

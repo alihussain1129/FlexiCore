@@ -39,6 +39,9 @@ app.UseAuthentication();
 app.UseRateLimiter();
 // After authentication so per-user policies can read the caller; before authorization.
 app.UseAuthorization();
+// Local mode: nothing but health and license routes is served until a valid license is installed. Hosted: no-op.
+// Run after authorization so unauthenticated requests can be challenged with 401 before a license block is evaluated.
+app.UseLicenseEnforcement();
 
 if (app.Environment.IsDevelopment())
 {
@@ -53,6 +56,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = c => c
 app.MapIdentityEndpoints();
 app.MapTenancyEndpoints();
 app.MapLicenseEndpoints();
+LocalSetupEndpoints.Map(app, app.Services.GetRequiredService<DeploymentSettings>());
 
 app.Run();
 

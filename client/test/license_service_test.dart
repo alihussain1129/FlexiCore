@@ -1,3 +1,5 @@
+// ignore_for_file: use_null_aware_elements
+
 import 'dart:convert';
 
 import 'package:flexicore_client/core/api_client.dart';
@@ -32,7 +34,7 @@ Map<String, dynamic> _problem(int status, {String? reason}) => {
   'type': 'urn:flexicore:problem:license-rejected',
   'title': 'The license was rejected',
   'status': status,
-  if (reason != null) 'reason': reason,
+  if (reason case final value?) 'reason': value,
 };
 
 void main() {

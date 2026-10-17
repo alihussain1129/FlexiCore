@@ -56,7 +56,7 @@ public sealed class LicenseLocalActivationTests(PostgresFixture postgres)
         }
     }
 
-    private async Task<Harness> StartAsync(bool local)
+    private async Task<Harness> StartAsync(bool local, bool createUser = true)
     {
         var signer = new TestSigner();
         var dir = Path.Combine(Path.GetTempPath(), "flexicore-license-local-" + Guid.NewGuid().ToString("N"));
@@ -80,8 +80,12 @@ public sealed class LicenseLocalActivationTests(PostgresFixture postgres)
             Environment.SetEnvironmentVariable("License__Directory", local ? dir : null);
             Environment.SetEnvironmentVariable("License__ImportPermitPerMinute", local ? "100" : null);
 
-            var app = await Scenario.StartWithUserAsync(postgres, "100000", Configure);
-            var token = (await Scenario.LoginAsync(app)).AccessToken;
+            var app = createUser
+                ? await Scenario.StartWithUserAsync(postgres, "100000", Configure)
+                : await IdentityTestApp.StartAsync(postgres, "true", "100000", Configure);
+            var token = createUser
+                ? (await Scenario.LoginAsync(app)).AccessToken
+                : string.Empty;
             return new Harness { App = app, Token = token, Signer = signer, Dir = dir, Remote = remote };
         }
         finally
@@ -140,6 +144,79 @@ public sealed class LicenseLocalActivationTests(PostgresFixture postgres)
         Assert.Equal(file, await File.ReadAllBytesAsync(h.StoredPath));
         var status = await IdentityTestApp.ReadJsonAsync(await SendAsync(h, HttpMethod.Get, StatusUrl));
         Assert.Equal("valid", status.GetProperty("state").GetString());
+    }
+
+    [Fact]
+    public async Task Local_first_owner_setup_is_license_gated_loopback_only_and_one_time()
+    {
+        await using var h = await StartAsync(local: true, createUser: false);
+        const string setupUrl = "/api/v1/local/setup";
+        const string email = "local.owner@example.com";
+        const string password = "a-long-local-owner-password";
+
+        var unavailable = await SendAsync(h, HttpMethod.Get, setupUrl);
+        Assert.Equal(HttpStatusCode.Forbidden, unavailable.StatusCode);
+
+        h.Remote.Value = IPAddress.Parse("203.0.113.5");
+        var remote = await SendAsync(h, HttpMethod.Get, setupUrl);
+        Assert.Equal(HttpStatusCode.Forbidden, remote.StatusCode);
+        h.Remote.Value = IPAddress.Loopback;
+
+        var license = h.Signer.Build(Payload());
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(h, HttpMethod.Put, ImportUrl, license)).StatusCode);
+
+        var status = await SendAsync(h, HttpMethod.Get, setupUrl);
+        Assert.Equal(HttpStatusCode.OK, status.StatusCode);
+        Assert.True((await IdentityTestApp.ReadJsonAsync(status)).GetProperty("setupRequired").GetBoolean());
+
+        var publicRegistration = await SendAsync(
+            h,
+            HttpMethod.Post,
+            "/api/v1/auth/register",
+            Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(new { email, password })));
+        Assert.Equal(HttpStatusCode.Forbidden, publicRegistration.StatusCode);
+
+        var body = Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(new { email, password }));
+        var attempts = await Task.WhenAll(
+            SendAsync(h, HttpMethod.Post, setupUrl, body),
+            SendAsync(h, HttpMethod.Post, setupUrl, body));
+        Assert.Single(attempts, response => response.StatusCode == HttpStatusCode.Created);
+        Assert.Single(attempts, response => response.StatusCode == HttpStatusCode.Conflict);
+
+        status = await SendAsync(h, HttpMethod.Get, setupUrl);
+        Assert.False((await IdentityTestApp.ReadJsonAsync(status)).GetProperty("setupRequired").GetBoolean());
+
+        var session = await Scenario.ReadSessionAsync(await h.App.LoginAsync(email, password));
+        var organizationRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/organizations/")
+        {
+            Content = System.Net.Http.Json.JsonContent.Create(new { name = "Local Business", slug = "local-business" })
+        };
+        organizationRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", session.AccessToken);
+        var organization = await h.App.Client.SendAsync(organizationRequest);
+        Assert.Equal(HttpStatusCode.Created, organization.StatusCode);
+        var organizationJson = await IdentityTestApp.ReadJsonAsync(organization);
+        var companyRequest = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/api/v1/organizations/{organizationJson.GetProperty("id").GetGuid()}/companies")
+        {
+            Content = System.Net.Http.Json.JsonContent.Create(new
+            {
+                name = "Local Shop",
+                slug = "local-shop",
+                industryKey = "retail"
+            })
+        };
+        companyRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", session.AccessToken);
+        var company = await h.App.Client.SendAsync(companyRequest);
+        Assert.Equal(HttpStatusCode.Created, company.StatusCode);
+
+        var companiesRequest = new HttpRequestMessage(HttpMethod.Get, "/api/v1/companies");
+        companiesRequest.Headers.Authorization =
+            new AuthenticationHeaderValue("Bearer", session.AccessToken);
+        var companies = await h.App.Client.SendAsync(companiesRequest);
+        Assert.Equal(HttpStatusCode.OK, companies.StatusCode);
+        var listed = await IdentityTestApp.ReadJsonAsync(companies);
+        Assert.Equal("Local Shop", listed[0].GetProperty("name").GetString());
     }
 
     [Theory]

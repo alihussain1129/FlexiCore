@@ -20,8 +20,6 @@ public sealed record CompanySummary(
 /// </summary>
 public sealed class TenancyStore
 {
-    private const int MaxListSize = 100;
-
     private const string CompanySelect =
         "SELECT c.id, c.organization_id, c.name, c.slug, c.industry_key, cm.role " +
         "FROM tenancy.companies c " +
@@ -115,7 +113,8 @@ public sealed class TenancyStore
         }
     }
 
-    public async Task<IReadOnlyList<OrganizationSummary>> ListOrganizationsAsync(Guid userId, CancellationToken ct)
+    public async Task<IReadOnlyList<OrganizationSummary>> ListOrganizationsAsync(
+        Guid userId, int limit, int offset, CancellationToken ct)
     {
         await using var scope = await _factory.OpenAsync(TenantContext.For(userId), ct);
         await using var command = new NpgsqlCommand(
@@ -123,10 +122,11 @@ public sealed class TenancyStore
             "FROM tenancy.organizations o " +
             "JOIN tenancy.organization_memberships om ON om.organization_id = o.id " +
             "WHERE om.user_id = @user_id AND om.status = 'active' " +
-            "ORDER BY o.name, o.id LIMIT @limit",
+            "ORDER BY o.name, o.id LIMIT @limit OFFSET @offset",
             scope.Connection, scope.Transaction);
         command.Parameters.AddWithValue("user_id", userId);
-        command.Parameters.AddWithValue("limit", MaxListSize);
+        command.Parameters.AddWithValue("limit", limit);
+        command.Parameters.AddWithValue("offset", offset);
 
         var list = new List<OrganizationSummary>();
         await using var reader = await command.ExecuteReaderAsync(ct);
@@ -139,13 +139,15 @@ public sealed class TenancyStore
         return list;
     }
 
-    public async Task<IReadOnlyList<CompanySummary>> ListCompaniesAsync(Guid userId, CancellationToken ct)
+    public async Task<IReadOnlyList<CompanySummary>> ListCompaniesAsync(
+        Guid userId, int limit, int offset, CancellationToken ct)
     {
         await using var scope = await _factory.OpenAsync(TenantContext.For(userId), ct);
         await using var command = new NpgsqlCommand(
-            CompanySelect + " ORDER BY c.name, c.id LIMIT @limit", scope.Connection, scope.Transaction);
+            CompanySelect + " ORDER BY c.name, c.id LIMIT @limit OFFSET @offset", scope.Connection, scope.Transaction);
         command.Parameters.AddWithValue("user_id", userId);
-        command.Parameters.AddWithValue("limit", MaxListSize);
+        command.Parameters.AddWithValue("limit", limit);
+        command.Parameters.AddWithValue("offset", offset);
         return await ReadCompaniesAsync(command, ct);
     }
 

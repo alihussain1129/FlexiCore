@@ -38,6 +38,10 @@ dependencies:
   flutter_secure_storage: ^11.2.0
   provider: ^6.1.5+1
   file_selector: ^1.1.0
+  excel: ^4.0.6
+  csv: ^8.0.0
+  archive: ^3.6.1
+  xml: ^6.6.1
 
 dev_dependencies:
   flutter_test:

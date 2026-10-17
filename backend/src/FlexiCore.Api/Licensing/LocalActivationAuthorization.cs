@@ -8,12 +8,14 @@ namespace FlexiCore.Api.Licensing;
 internal sealed class LocalActivationRequirement : IAuthorizationRequirement;
 
 /// <summary>Succeeds for any authenticated user, or for an anonymous request that is provably local.</summary>
-internal sealed class LocalActivationHandler : AuthorizationHandler<LocalActivationRequirement>
+internal sealed class LocalActivationHandler(IHttpContextAccessor httpContextAccessor)
+    : AuthorizationHandler<LocalActivationRequirement>
 {
     protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, LocalActivationRequirement requirement)
     {
+        var http = context.Resource as HttpContext ?? httpContextAccessor.HttpContext;
         if (context.User.Identity?.IsAuthenticated == true
-            || (context.Resource is HttpContext http && LocalActivationAuthorization.IsLocalAnonymousRequest(http)))
+            || (http is not null && LocalActivationAuthorization.IsLocalAnonymousRequest(http)))
         {
             context.Succeed(requirement);
         }
@@ -36,6 +38,7 @@ internal static class LocalActivationAuthorization
 
     public static void Register(IServiceCollection services)
     {
+        services.AddHttpContextAccessor();
         services.AddAuthorization(options =>
             options.AddPolicy(PolicyName, policy => policy.AddRequirements(new LocalActivationRequirement())));
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IAuthorizationHandler, LocalActivationHandler>());
