@@ -230,6 +230,50 @@ public sealed class LicenseLocalActivationTests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.OK, (await SendAsync(h, HttpMethod.Get, StatusUrl, host: host)).StatusCode);
     }
 
+    [Fact]
+    public async Task Local_first_owner_can_be_set_up_and_sign_in_by_username()
+    {
+        await using var h = await StartAsync(local: true, createUser: false);
+        const string setupUrl = "/api/v1/local/setup";
+        const string username = "Local.Owner";
+        const string password = "a-long-local-owner-password";
+        static byte[] Json(object value) =>
+            Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(value));
+
+        Assert.Equal(HttpStatusCode.OK,
+            (await SendAsync(h, HttpMethod.Put, ImportUrl, h.Signer.Build(Payload()))).StatusCode);
+
+        // A malformed username is refused and does not consume the one-time setup.
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await SendAsync(h, HttpMethod.Post, setupUrl, Json(new { username = "ab", password }))).StatusCode);
+
+        var created = await SendAsync(h, HttpMethod.Post, setupUrl, Json(new { username, password }));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var createdJson = await IdentityTestApp.ReadJsonAsync(created);
+        Assert.Equal(username, createdJson.GetProperty("username").GetString());
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, createdJson.GetProperty("email").ValueKind);
+
+        // Sign in with the explicit username field, case-insensitively.
+        var byUsername = await h.App.PostJsonAsync("/api/v1/auth/login", new { username = "local.OWNER", password });
+        var session = await Scenario.ReadSessionAsync(byUsername);
+
+        // The legacy email field also accepts a username (no '@' means username).
+        Assert.Equal(HttpStatusCode.OK, (await h.App.LoginAsync(username, password)).StatusCode);
+
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await h.App.PostJsonAsync("/api/v1/auth/login", new { username, password = "wrong-password-123" })).StatusCode);
+
+        var me = await h.App.MeAsync(session.AccessToken);
+        Assert.Equal(HttpStatusCode.OK, me.StatusCode);
+        var meJson = await IdentityTestApp.ReadJsonAsync(me);
+        Assert.Equal(username, meJson.GetProperty("username").GetString());
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, meJson.GetProperty("email").ValueKind);
+
+        // Setup is one-time.
+        Assert.Equal(HttpStatusCode.Conflict,
+            (await SendAsync(h, HttpMethod.Post, setupUrl, Json(new { username = "second.owner", password }))).StatusCode);
+    }
+
     // ---- Local mode: everything else is refused ----
 
     [Theory]
@@ -340,11 +384,11 @@ public sealed class LicenseLocalActivationTests(PostgresFixture postgres)
     // ---- Hosted mode is unchanged ----
 
     [Fact]
-    public async Task Hosted_anonymous_loopback_status_is_401_and_import_route_does_not_exist()
+    public async Task Hosted_anonymous_status_is_public_and_import_route_does_not_exist()
     {
         await using var h = await StartAsync(local: false);
 
-        Assert.Equal(HttpStatusCode.Unauthorized, (await SendAsync(h, HttpMethod.Get, StatusUrl)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(h, HttpMethod.Get, StatusUrl)).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound,
             (await SendAsync(h, HttpMethod.Put, ImportUrl, "{}"u8.ToArray())).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await SendAsync(h, HttpMethod.Get, StatusUrl, signedIn: true)).StatusCode);

@@ -94,14 +94,21 @@ public sealed class LicenseApiTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task Hosted_status_requires_a_live_session()
+    public async Task Hosted_status_is_public_and_does_not_require_a_session()
     {
-        var (app, token) = await StartAsync(null, null);
+        var (app, _) = await StartAsync(null, null);
         await using var scope = app;
 
-        Assert.Equal(HttpStatusCode.Unauthorized, (await SendAsync(app, HttpMethod.Get, StatusUrl, null)).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await SendAsync(app, HttpMethod.Get, StatusUrl, "not-a-token")).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await SendAsync(app, HttpMethod.Get, StatusUrl, token)).StatusCode);
+        var anonymous = await SendAsync(app, HttpMethod.Get, StatusUrl, null);
+        Assert.Equal(HttpStatusCode.OK, anonymous.StatusCode);
+
+        var json = await IdentityTestApp.ReadJsonAsync(anonymous);
+        Assert.Equal("hosted", json.GetProperty("mode").GetString());
+        Assert.False(json.GetProperty("licenseRequired").GetBoolean());
+        Assert.Equal("notApplicable", json.GetProperty("state").GetString());
+
+        var invalidToken = await SendAsync(app, HttpMethod.Get, StatusUrl, "not-a-token");
+        Assert.Equal(HttpStatusCode.OK, invalidToken.StatusCode);
     }
 
     [Fact]
