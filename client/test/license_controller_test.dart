@@ -18,10 +18,11 @@ LicenseController _controller({
 
 void main() {
   group('check', () {
-    test('no anonymous access (401) goes on to sign-in', () async {
+    test('missing license status does not bypass the license gate', () async {
       final c = _controller(status: () async => null);
       await c.check();
-      expect(c.state, LicenseUiState.ready);
+      expect(c.state, LicenseUiState.unreachable);
+      expect(c.problem, isNotNull);
     });
 
     test('hosted mode needs no license', () async {

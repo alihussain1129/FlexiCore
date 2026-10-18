@@ -4,13 +4,21 @@ import '../../core/api_client.dart';
 import '../../core/api_exception.dart';
 
 class UserProfile {
-  UserProfile({required this.id, required this.email});
+  UserProfile({required this.id, required this.email, this.username});
 
   factory UserProfile.fromJson(Map<String, dynamic> json) =>
-      UserProfile(id: json['id'] as String, email: json['email'] as String);
+      UserProfile(
+        id: json['id'] as String,
+        email: (json['email'] as String?) ?? (json['username'] as String?) ?? '',
+        username: json['username'] as String?,
+      );
 
   final String id;
   final String email;
+  final String? username;
+
+  /// What to show in the UI: the username for local accounts, else the email.
+  String get displayName => username ?? email;
 }
 
 class AuthService {

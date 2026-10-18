@@ -23,11 +23,11 @@ class LocalSetupService {
   }
 
   Future<void> createFirstOwner({
-    required String email,
+    required String username,
     required String password,
   }) async {
     final response = await _api.postPublic('/api/v1/local/setup', {
-      'email': email,
+      'username': username,
       'password': password,
     });
     if (response.statusCode != 201) throw ApiException.fromResponse(response);

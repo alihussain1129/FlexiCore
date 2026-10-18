@@ -16,7 +16,7 @@ class LocalSetupScreen extends StatefulWidget {
 
 class _LocalSetupScreenState extends State<LocalSetupScreen> {
   late final LocalSetupService _service;
-  final _email = TextEditingController();
+  final _username = TextEditingController();
   final _password = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   bool? _setupRequired;
@@ -34,7 +34,7 @@ class _LocalSetupScreenState extends State<LocalSetupScreen> {
 
   @override
   void dispose() {
-    _email.dispose();
+    _username.dispose();
     _password.dispose();
     super.dispose();
   }
@@ -67,11 +67,11 @@ class _LocalSetupScreenState extends State<LocalSetupScreen> {
       _error = null;
     });
     try {
-      final email = _email.text.trim();
-      await _service.createFirstOwner(email: email, password: _password.text);
+      final username = _username.text.trim();
+      await _service.createFirstOwner(username: username, password: _password.text);
       if (!mounted) return;
       setState(() => _setupRequired = false);
-      await context.read<SessionController>().login(email, _password.text);
+      await context.read<SessionController>().login(username, _password.text);
     } on ApiException catch (error) {
       if (mounted) {
         setState(() {
@@ -151,11 +151,11 @@ class _LocalSetupScreenState extends State<LocalSetupScreen> {
                   ),
                   const SizedBox(height: 24),
                   TextFormField(
-                    controller: _email,
-                    decoration: const InputDecoration(labelText: 'Owner email'),
-                    keyboardType: TextInputType.emailAddress,
-                    validator: (value) => value == null || !value.contains('@')
-                        ? 'Enter a valid email address.'
+                    controller: _username,
+                    decoration: const InputDecoration(labelText: 'Owner username'),
+                    keyboardType: TextInputType.text,
+                    validator: (value) => value == null || value.trim().length < 3
+                        ? 'Use at least 3 characters.'
                         : null,
                   ),
                   const SizedBox(height: 12),
@@ -163,7 +163,7 @@ class _LocalSetupScreenState extends State<LocalSetupScreen> {
                     controller: _password,
                     decoration: const InputDecoration(
                       labelText: 'Password',
-                      helperText: '12 to 128 characters; must not contain your email name',
+                      helperText: '12 to 128 characters; must not contain your username',
                     ),
                     obscureText: true,
                     validator: (value) =>

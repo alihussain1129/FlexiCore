@@ -35,11 +35,11 @@ void main() {
           expect(request.url.path, '/api/v1/local/setup');
           expect(request.headers.containsKey('authorization'), isFalse);
           expect(jsonDecode(request.body), {
-            'email': 'owner@example.com',
+            'username': 'owner',
             'password': 'test-password',
           });
           return http.Response(
-            '{"id":"00000000-0000-0000-0000-000000000001","email":"owner@example.com"}',
+            '{"id":"00000000-0000-0000-0000-000000000001","username":"owner"}',
             201,
           );
         }),
@@ -48,7 +48,7 @@ void main() {
 
     await expectLater(
       service.createFirstOwner(
-        email: 'owner@example.com',
+        username: 'owner',
         password: 'test-password',
       ),
       completes,

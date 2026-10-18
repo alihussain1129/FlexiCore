@@ -75,6 +75,16 @@ class LicenseController extends ChangeNotifier {
     }
   }
 
+  /// Opens the existing activation screen from the local sign-in page.
+  /// This is only offered when the server has explicitly confirmed local mode.
+  void openActivation() {
+    if (!isLocalMode) return;
+    _state = LicenseUiState.needsLicense;
+    _problem = null;
+    _importError = null;
+    notifyListeners();
+  }
+
   Future<void> check() async {
     _state = LicenseUiState.checking;
     _problem = null;
@@ -83,7 +93,11 @@ class LicenseController extends ChangeNotifier {
     try {
       _apply(await _fetchStatus());
     } on ApiException catch (e) {
-      _fail(e.message);
+      if (e.isNetworkError) {
+        _fail(e.message);
+      } else {
+        _failHttp(e);
+      }
     } catch (_) {
       _fail('Could not check the license status.');
     }
@@ -117,9 +131,10 @@ class LicenseController extends ChangeNotifier {
     _status = status;
     _problem = null;
     if (status == null) {
-      // The server offers no anonymous license access to this caller
-      // (Hosted mode, or another machine): normal sign-in applies.
-      _state = LicenseUiState.ready;
+      // A missing status is not proof that licensing is unnecessary.
+      // Hosted mode must return its explicit not-applicable status.
+      _state = LicenseUiState.unreachable;
+      _problem = 'The server did not return a license status. Retry the check before continuing.';
       return;
     }
     switch (status.gate) {
@@ -134,6 +149,15 @@ class LicenseController extends ChangeNotifier {
         _problem = 'This copy of FlexiCore cannot verify licenses right now. Contact the vendor, or try again later.';
         break;
     }
+  }
+
+  /// The server answered, but not with a usable license status. Fails closed.
+  void _failHttp(ApiException e) {
+    _status = null;
+    _state = LicenseUiState.unavailable;
+    _problem = (e.isUnauthorized || e.statusCode == 403)
+        ? 'FlexiCore is running but refused the license check (HTTP ${e.statusCode}). Make sure this app is connecting to FlexiCore on this computer.'
+        : 'FlexiCore is running but could not check the license (HTTP ${e.statusCode}). Try again, or contact support.';
   }
 
   void _fail(String message) {

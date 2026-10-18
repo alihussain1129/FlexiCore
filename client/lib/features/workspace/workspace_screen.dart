@@ -832,7 +832,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                 enabled: false,
                 child: SizedBox(
                   width: 220,
-                  child: Text(session.user?.email ?? 'Signed-in account'),
+                  child: Text(session.user?.displayName ?? 'Signed-in account'),
                 ),
               ),
               const PopupMenuDivider(),

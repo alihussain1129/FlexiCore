@@ -67,8 +67,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 24),
                 TextField(
                   controller: _email,
-                  decoration: const InputDecoration(labelText: 'Email'),
-                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(labelText: 'Username or email'),
+                  keyboardType: TextInputType.text,
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -91,6 +91,16 @@ class _LoginScreenState extends State<LoginScreen> {
                   onPressed: _busy ? null : _submit,
                   child: Text(_busy ? 'Signing in...' : 'Sign in'),
                 ),
+                if (localMode)
+                  TextButton.icon(
+                    onPressed: _busy
+                        ? null
+                        : () => context
+                              .read<LicenseController>()
+                              .openActivation(),
+                    icon: const Icon(Icons.vpn_key_outlined),
+                    label: const Text('License activation / renewal'),
+                  ),
                 if (!localMode)
                   TextButton(
                     onPressed: _busy
