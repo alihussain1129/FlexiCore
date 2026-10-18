@@ -12,13 +12,13 @@ using Microsoft.AspNetCore.Routing;
 namespace FlexiCore.Identity.Endpoints;
 
 public sealed record RegisterRequest(string? Email, string? Password);
-public sealed record LoginRequest(string? Email, string? Password);
+public sealed record LoginRequest(string? Email, string? Password, string? Username = null);
 public sealed record RefreshRequest(string? RefreshToken);
 public sealed record LogoutRequest(string? RefreshToken);
 public sealed record RegisterResponse(Guid Id, string Email);
 /// <summary>Returned by both login and refresh.</summary>
 public sealed record LoginResponse(string AccessToken, string TokenType, int ExpiresIn, string RefreshToken);
-public sealed record MeResponse(Guid Id, string Email);
+public sealed record MeResponse(Guid Id, string? Email, string? Username = null);
 
 internal static class AuthEndpoints
 {
@@ -85,13 +85,14 @@ internal static class AuthEndpoints
         ITokenService tokens, UserStore users, RefreshSessionStore sessions, AuditWriter audit, CancellationToken ct)
     {
         var errors = new Dictionary<string, string[]>();
-        if (string.IsNullOrWhiteSpace(request.Email)) errors["email"] = ["Email is required."];
+        var identifier = string.IsNullOrWhiteSpace(request.Username) ? request.Email : request.Username;
+        if (string.IsNullOrWhiteSpace(identifier)) errors["email"] = ["Email is required."];
         if (string.IsNullOrEmpty(request.Password)) errors["password"] = ["Password is required."];
         if (errors.Count > 0) return Results.ValidationProblem(errors);
 
         http.Response.Headers.CacheControl = "no-store";
         var correlationId = CorrelationId(http);
-        var email = request.Email!.Trim();
+        var email = identifier!.Trim();
         var password = request.Password!;
 
         // Reject absurd input before spending any hashing effort on it.
@@ -102,7 +103,9 @@ internal static class AuthEndpoints
             return InvalidCredentials();
         }
 
-        var user = await users.FindByNormalizedEmailAsync(EmailRules.Normalize(email), ct);
+        var user = email.Contains('@')
+            ? await users.FindByNormalizedEmailAsync(EmailRules.Normalize(email), ct)
+            : await users.FindByNormalizedUsernameAsync(UsernameRules.Normalize(email), ct);
         if (user is null)
         {
             passwords.BurnVerificationTime(password);
@@ -193,7 +196,7 @@ internal static class AuthEndpoints
 
         var user = await users.FindByIdAsync(id, ct);
         return user is { IsActive: true }
-            ? Results.Ok(new MeResponse(user.Id, user.Email))
+            ? Results.Ok(new MeResponse(user.Id, user.Email, user.Username))
             : Results.Unauthorized();
     }
 

@@ -3,7 +3,7 @@ using NpgsqlTypes;
 
 namespace FlexiCore.Identity.Data;
 
-public sealed record UserRecord(Guid Id, string Email, string PasswordHash, string Status, bool IsLocked)
+public sealed record UserRecord(Guid Id, string? Email, string PasswordHash, string Status, bool IsLocked, string? Username = null)
 {
     public bool IsActive => Status == "active";
 }
@@ -11,12 +11,19 @@ public sealed record UserRecord(Guid Id, string Email, string PasswordHash, stri
 public sealed class UserStore(NpgsqlDataSource dataSource, AuditWriter audit)
 {
     private const string SelectColumns =
-        "select id, email, password_hash, status, (locked_until is not null and locked_until > now()) from identity.users ";
+        "select id, email, password_hash, status, (locked_until is not null and locked_until > now()), username from identity.users ";
 
     public async Task<UserRecord?> FindByNormalizedEmailAsync(string normalizedEmail, CancellationToken ct)
     {
         await using var command = dataSource.CreateCommand(SelectColumns + "where email_normalized = @e");
         command.Parameters.AddWithValue("e", normalizedEmail);
+        return await ReadOneAsync(command, ct);
+    }
+
+    public async Task<UserRecord?> FindByNormalizedUsernameAsync(string normalizedUsername, CancellationToken ct)
+    {
+        await using var command = dataSource.CreateCommand(SelectColumns + "where username_normalized = @u");
+        command.Parameters.AddWithValue("u", normalizedUsername);
         return await ReadOneAsync(command, ct);
     }
 
@@ -104,6 +111,50 @@ public sealed class UserStore(NpgsqlDataSource dataSource, AuditWriter audit)
         }
     }
 
+    /// <summary>
+    /// First local owner identified by username (no email). Same advisory lock and one-time guarantee as
+    /// <see cref="TryCreateFirstAsync"/>; once any user exists it returns null.
+    /// </summary>
+    public async Task<Guid?> TryCreateFirstWithUsernameAsync(
+        string username, string normalizedUsername, string passwordHash, string? correlationId, CancellationToken ct)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, ct);
+
+        await using (var setupLock = new NpgsqlCommand("select pg_advisory_xact_lock(731946201)", connection, transaction))
+            await setupLock.ExecuteNonQueryAsync(ct);
+
+        await using (var anyUsers = new NpgsqlCommand("select exists(select 1 from identity.users)", connection, transaction))
+        {
+            if ((bool)(await anyUsers.ExecuteScalarAsync(ct))!)
+                return null;
+        }
+
+        try
+        {
+            Guid id;
+            await using (var insert = new NpgsqlCommand(
+                "insert into identity.users (username, username_normalized, password_hash) values (@u, @n, @h) returning id",
+                connection, transaction))
+            {
+                insert.Parameters.AddWithValue("u", username);
+                insert.Parameters.AddWithValue("n", normalizedUsername);
+                insert.Parameters.AddWithValue("h", passwordHash);
+                id = (Guid)(await insert.ExecuteScalarAsync(ct))!;
+            }
+
+            await audit.WriteAsync(connection, transaction,
+                new AuditEvent("auth.local_setup", "success", id, "user", id.ToString(), correlationId), ct);
+            await transaction.CommitAsync(ct);
+            return id;
+        }
+        catch (PostgresException ex) when (
+            ex.SqlState == PostgresErrorCodes.UniqueViolation && ex.ConstraintName == "ux_users_username_normalized")
+        {
+            return null;
+        }
+    }
+
     public async Task<bool> HasAnyUsersAsync(CancellationToken ct)
     {
         await using var command = dataSource.CreateCommand("select exists(select 1 from identity.users)");
@@ -151,7 +202,7 @@ public sealed class UserStore(NpgsqlDataSource dataSource, AuditWriter audit)
     {
         await using var reader = await command.ExecuteReaderAsync(ct);
         return await reader.ReadAsync(ct)
-            ? new UserRecord(reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetBoolean(4))
+            ? new UserRecord(reader.GetGuid(0), reader.IsDBNull(1) ? null : reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetBoolean(4), reader.IsDBNull(5) ? null : reader.GetString(5))
             : null;
     }
 }

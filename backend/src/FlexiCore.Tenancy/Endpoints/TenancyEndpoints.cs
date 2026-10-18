@@ -11,7 +11,7 @@ namespace FlexiCore.Tenancy.Endpoints;
 
 public sealed record CreateOrganizationRequest(string? Name, string? Slug);
 public sealed record CreateCompanyRequest(string? Name, string? Slug, string? IndustryKey);
-public sealed record AddMemberRequest(string? Email, string? Role);
+public sealed record AddMemberRequest(string? Email, string? Role, string? Username = null);
 public sealed record ChangeRoleRequest(string? Role);
 
 internal static class TenancyEndpoints
@@ -19,6 +19,9 @@ internal static class TenancyEndpoints
     // These mirror the CHECK constraints in migration 0004 so callers get a clear 400 instead of a constraint error.
     private static readonly Regex SlugPattern =
         new(@"^[a-z0-9][a-z0-9-]{1,78}[a-z0-9]\z", RegexOptions.CultureInvariant);
+
+    private static readonly Regex UsernamePattern =
+        new(@"^[a-z0-9][a-z0-9._-]{2,31}\z", RegexOptions.CultureInvariant);
 
     private static readonly Regex IndustryKeyPattern =
         new(@"^[a-z][a-z0-9_]{1,63}\z", RegexOptions.CultureInvariant);
@@ -132,10 +135,23 @@ internal static class TenancyEndpoints
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
 
         // Tenancy may not reference Identity, so MemberEmail repeats EmailRules.Normalize; a unit test pins the two together.
-        var email = FlexiCore.Tenancy.MemberEmail.Normalize(request.Email);
+        var hasUsername = !string.IsNullOrWhiteSpace(request.Username);
+        var hasEmail = !string.IsNullOrWhiteSpace(request.Email);
+        var identifier = hasUsername
+            ? request.Username!.Trim().ToLowerInvariant()
+            : FlexiCore.Tenancy.MemberEmail.Normalize(request.Email);
         var role = request.Role?.Trim();
         var errors = new Dictionary<string, string[]>();
-        if (string.IsNullOrEmpty(email) || email.Length < 3 || email.Length > 254 || !email.Contains('@'))
+        if (hasUsername && hasEmail)
+        {
+            errors["username"] = ["Provide either an email or a username, not both."];
+        }
+        else if (hasUsername)
+        {
+            if (!UsernamePattern.IsMatch(identifier!))
+                errors["username"] = ["A valid username is required."];
+        }
+        else if (string.IsNullOrEmpty(identifier) || identifier.Length < 3 || identifier.Length > 254 || !identifier.Contains('@'))
         {
             errors["email"] = ["A valid email address is required."];
         }
@@ -147,7 +163,7 @@ internal static class TenancyEndpoints
 
         if (errors.Count > 0) return Results.ValidationProblem(errors);
 
-        var result = await store.AddMemberAsync(userId, organizationId, email!, role!, CorrelationId(http), ct);
+        var result = await store.AddMemberAsync(userId, organizationId, identifier!, role!, CorrelationId(http), ct);
         return result.Outcome == CreateOutcome.Created
             ? Results.Json(new { userId = result.Id!.Value, role }, statusCode: StatusCodes.Status201Created)
             : Failure(result.Outcome, "This user is already a member of this organization.");

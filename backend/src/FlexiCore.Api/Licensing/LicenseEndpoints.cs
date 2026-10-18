@@ -47,7 +47,7 @@ internal static class LicenseEndpoints
 
         if (settings.Mode == DeploymentMode.Hosted)
         {
-            group.MapGet("/status", HostedStatus).RequireAuthorization();
+            group.MapGet("/status", HostedStatus).AllowAnonymous();
             return; // no import route in Hosted mode, so PUT returns 404
         }
 

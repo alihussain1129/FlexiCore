@@ -8,7 +8,7 @@ public readonly record struct CreateResult(CreateOutcome Outcome, Guid? Id = nul
 
 public sealed record OrganizationSummary(Guid Id, string Name, string Slug, string Role);
 
-public sealed record MemberSummary(Guid UserId, string Email, string Role, string Status, DateTimeOffset JoinedAt);
+public sealed record MemberSummary(Guid UserId, string? Email, string Role, string Status, DateTimeOffset JoinedAt, string? Username = null);
 
 public sealed record CompanySummary(
     Guid Id, Guid OrganizationId, string Name, string Slug, string IndustryKey, string Role);
@@ -92,7 +92,7 @@ public sealed class TenancyStore
         {
             await using var scope = await _factory.OpenAsync(TenantContext.For(userId), ct);
             await using var command = new NpgsqlCommand(
-                "SELECT member_user_id, member_email, member_role, member_status, joined_at " +
+                "SELECT member_user_id, member_email, member_role, member_status, joined_at, member_username " +
                 "FROM tenancy.list_organization_members(@organization_id)", scope.Connection, scope.Transaction);
             command.Parameters.AddWithValue("organization_id", organizationId);
 
@@ -101,8 +101,8 @@ public sealed class TenancyStore
             while (await reader.ReadAsync(ct))
             {
                 list.Add(new MemberSummary(
-                    reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3),
-                    reader.GetFieldValue<DateTimeOffset>(4)));
+                    reader.GetGuid(0), reader.IsDBNull(1) ? null : reader.GetString(1), reader.GetString(2), reader.GetString(3),
+                    reader.GetFieldValue<DateTimeOffset>(4), reader.IsDBNull(5) ? null : reader.GetString(5)));
             }
 
             return list;
