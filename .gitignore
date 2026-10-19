@@ -495,3 +495,6 @@ integration-test-failures.txt
 *.enc
 *.private.*
 issued*.jsonl
+
+# Local dev license store, never commit
+.local-licenses/
