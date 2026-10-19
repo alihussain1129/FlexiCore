@@ -146,10 +146,8 @@ public sealed class LicenseApiTests(PostgresFixture postgres)
     // ---- Local mode, production wiring ----
 
     [Fact]
-    public async Task Local_with_the_production_wiring_and_no_embedded_key_reports_unavailable()
+    public async Task Local_with_the_production_wiring_and_embedded_keys_reports_missing_for_empty_directory()
     {
-        // Holds while the build embeds no production key. When one is embedded, this test must change:
-        // the status becomes "missing" for an empty directory.
         using var dir = new TempDirectory();
         var (app, token) = await StartAsync("Local", dir.Path);
         await using var scope = app;
@@ -161,8 +159,8 @@ public sealed class LicenseApiTests(PostgresFixture postgres)
         var json = await IdentityTestApp.ReadJsonAsync(response);
         Assert.Equal("local", json.GetProperty("mode").GetString());
         Assert.True(json.GetProperty("licenseRequired").GetBoolean());
-        Assert.Equal("unavailable", json.GetProperty("state").GetString());
-        Assert.Equal("no_trusted_keys", json.GetProperty("reason").GetString());
+        Assert.Equal("missing", json.GetProperty("state").GetString());
+        Assert.Equal(JsonValueKind.Null, json.GetProperty("reason").ValueKind);
         Assert.Equal(JsonValueKind.Null, json.GetProperty("license").ValueKind);
     }
 

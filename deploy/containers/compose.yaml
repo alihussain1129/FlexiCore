@@ -1,4 +1,4 @@
-name: flexicore
+﻿name: flexicore
 services:
   postgres:
     image: postgres:18
@@ -33,6 +33,8 @@ services:
       postgres:
         condition: service_healthy
   api:
+    ports:
+      - "127.0.0.1:5265:5265"
     image: flexicore-api:local
     build:
       context: ../..
@@ -41,15 +43,18 @@ services:
     restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      ASPNETCORE_HTTP_PORTS: "8080"
-      Deployment__Mode: Hosted
+      ASPNETCORE_HTTP_PORTS: "5265"
+      Deployment__Mode: Local
+      License__Directory: /var/lib/flexicore/licenses
       ConnectionStrings__Default: "Host=postgres;Port=5432;Database=flexicore;Username=flexicore_app;Password=${FLEXICORE_APP_PASSWORD:?FLEXICORE_APP_PASSWORD must be configured in .env}"
       Jwt__SigningKey: ${FLEXICORE_JWT_SIGNING_KEY:?FLEXICORE_JWT_SIGNING_KEY must be configured in .env}
-    ports:
-      - "127.0.0.1:5265:8080"
+    volumes:
+      - license_data:/var/lib/flexicore/licenses
     depends_on:
       migrate:
         condition: service_completed_successfully
 
 volumes:
   pgdata:
+  license_data:
+
