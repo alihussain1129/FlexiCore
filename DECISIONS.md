@@ -226,3 +226,28 @@ These sections were not written when the phases were committed. This summary com
 - Verified (2026-10-16): on an empty volume migrate applied all 8 scripts, exited 0, and the API started afterwards. Not yet verified: /health/ready against a freshly migrated container, and a registration or sign-in round trip.
 - The API container runs as Production with Deployment__Mode Hosted, so registration is disabled unless Registration__Enabled is set explicitly. The host port is bound to 127.0.0.1:5265, the same port as a local dotnet run.
 - Known limitations: no TLS inside the stack (see D8); ASP.NET data-protection keys live inside the container and are unencrypted (nothing uses them today because sign-in tokens are JWT); both containers log a harmless message about the optional Kerberos library libgssapi_krb5; Local mode is not packaged (no license directory volume); no backups, secrets management or cloud deployment yet.
+## Phase 14a: device pairing (Local mode)
+
+- Scope: backend only, Local mode only. A new FlexiCore.Devices project, migration 0011_devices and a pairing-code administrator command let an activated installation pair devices without customer accounts. Hosted mode never registers the Devices module, its authentication scheme, its policies or its routes. No change to Identity, Tenancy or Licensing code. A device is not a user and is never proof of which person acted.
+- Storage: schema devices has devices and pairing_codes. Only hashes are stored (SHA-256 of a 256-bit random device secret; SHA-256 of the pairing code). Devices are never deleted, only revoked. flexicore_app has column-level grants only (insert name, secret_hash, is_owner; update last_seen_at and revoked_at).
+- Pairing: POST /api/v1/devices/pair is anonymous but requires a valid license (the same Valid or ValidInGrace rule as enforcement, supplied to Devices through IDeviceActivationGate so Devices does not depend on Licensing), a one-time code, a device name of 1 to 80 characters, and passes a per-IP rate limit of 10 attempts a minute. Malformed, unknown, used and expired codes all get the same 400, so a code cannot be probed. A code is consumed atomically. The device secret is returned once, as Device <deviceId>.<secret>, and cannot be read again.
+- Codes: valid for 10 minutes, single use, at most 20 unused at a time (serialized with an advisory lock). Owner-capable codes are created only by the administrator command (dotnet FlexiCore.Api.dll pairing-code --owner). An owner device can create ordinary codes through the API (POST /api/v1/devices/pairing-codes) but never owner-capable ones.
+- Authentication: a policy scheme chooses by header. Authorization: Device goes to the device handler; anything else goes to the existing JWT scheme, unchanged. The credential is checked against the database on every request, so revocation takes effect immediately. A wrong secret, an unknown device and a revoked device give the same failure. last_seen_at is updated at most once a minute and a failure to record it never blocks a valid device.
+- Authorization: policy device (any paired device) for GET /api/v1/devices/me; policy device-owner for GET /api/v1/devices, POST /api/v1/devices/pairing-codes and POST /api/v1/devices/{id}/revoke. Revoking maps to 204, 404 (unknown), 409 (already revoked) and 409 (last active owner device, which cannot be revoked; concurrent revocations are serialized).
+- Audit: pairing, rejected pairing, code creation and revocation write to audit.events inside the same transaction as the change, except denials, which are written after the rollback. Actor kind and device id are kept in metadata because the shared audit work is not done yet. Metadata never holds secrets, codes or tokens. Devices has its own copy of the audit writer (the third one, after Identity and Tenancy); consolidation is planned.
+- Enforcement: the license middleware lets only /api/v1/devices/pair through anonymously. Every other devices route needs an authenticated device and a valid license.
+- Verified so far (2026-10-19, from command output): the solution builds with 0 warnings and 0 errors; unit tests 262 passed; architecture tests 39 passed, including the four Devices dependency rules. Integration tests for the device endpoints are not written or run yet, so the endpoint behavior above is not yet verified by tests.
+
+### Known limitations
+
+- The stack has no TLS. A device secret and a pairing code travel in plain HTTP, so pairing and device traffic are safe only on the same machine or a network you trust. Remote use is not supported until a secured option is tested.
+- Anyone who can obtain a valid unused pairing code while the installation is licensed can pair a device. Codes are short-lived and rate limited, but the administrator must treat a displayed code as a secret.
+- A device secret stored on a client is only as safe as that platform's secure storage. Revocation is the remedy for a lost device.
+- Device activity is attributed to the device, not to a person.
+
+### Still open after 14a
+
+- Integration tests for pairing, authentication, owner-only routes, revocation and license gating.
+- Android pairing screens and secure credential storage on the client.
+- Consolidating the three audit writers and a first-class activity history.
+- License binding for Docker deployments of Local mode.
