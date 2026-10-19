@@ -18,6 +18,7 @@
     <ProjectReference Include="..\FlexiCore.SharedKernel\FlexiCore.SharedKernel.csproj" />
     <ProjectReference Include="..\FlexiCore.Tenancy\FlexiCore.Tenancy.csproj" />
     <ProjectReference Include="..\FlexiCore.Licensing\FlexiCore.Licensing.csproj" />
+    <ProjectReference Include="..\FlexiCore.Catalog\FlexiCore.Catalog.csproj" />
   </ItemGroup>
 
 </Project>

@@ -251,3 +251,17 @@ These sections were not written when the phases were committed. This summary com
 - Android pairing screens and secure credential storage on the client.
 - Consolidating the three audit writers and a first-class activity history.
 - License binding for Docker deployments of Local mode.
+
+## Phase 15a, slice 1: catalog units and products
+
+- Catalog is a new module (FlexiCore.Catalog) that references Tenancy for the tenant connection factory. Tenancy and SharedKernel must not reference Catalog (architecture rules).
+- Writes are limited to company owners and admins. Members read only. Enforced twice: RLS policies on catalog.units and catalog.products, and a role check in the store. A real permissions model (for example a cashier who may add products) is a later slice.
+- Endpoints accept user tokens (the Bearer scheme) only. Paired devices get no catalog access until the sync slice.
+- Records have client-supplied UUIDs, version, updated_at, origin_device_id, deleted_at and change_seq. The app role has no grant on version, updated_at, change_seq or origin_device_id, and no delete. A trigger stamps them.
+- Soft delete: deleted rows leave lists and free their SKU or unit code (partial unique indexes). A unit still used by a live product cannot be deleted (409).
+- Create is idempotent: same id and same content returns the existing record (200); different content, a deleted record, or an id owned by another company returns 409 without revealing the other row.
+- Update needs the current version; a stale version returns 409 with the current record.
+- One audit row per successful write, in the same transaction, with the correlation id. Refused writes and replays write no audit row (differs from Tenancy, which audits refusals).
+- Paging follows Tenancy: limit 1 to 100 (default 50), an out-of-range value is a 400, not a silent cap. Search is by name, SKU, barcode (ILIKE, wildcards escaped).
+- Barcodes are validated but not unique. Prices are numeric(18,4), not negative.
+- Out of scope for slice 1: categories, brands, tax, variants, images, reorder levels, inventory, pricing rules, sync endpoints.

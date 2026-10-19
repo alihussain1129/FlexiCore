@@ -1,6 +1,7 @@
 using FlexiCore.Api.Health;
 using FlexiCore.Api.Licensing;
 using FlexiCore.Api.Observability;
+using FlexiCore.Catalog;
 using FlexiCore.Devices;
 using FlexiCore.Identity;
 using FlexiCore.Tenancy;
@@ -32,6 +33,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
 builder.Services.AddIdentityModule(builder.Configuration, builder.Environment);
 builder.Services.AddTenancyModule();
+builder.Services.AddCatalogModule();
 builder.Services.AddLicensingModule(builder.Configuration);
 if (DeploymentSettings.From(builder.Configuration).Mode == DeploymentMode.Local)
 {
@@ -69,6 +71,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = c => c
 
 app.MapIdentityEndpoints();
 app.MapTenancyEndpoints();
+app.MapCatalogEndpoints();
 app.MapLicenseEndpoints();
 if (app.Services.GetRequiredService<DeploymentSettings>().Mode == DeploymentMode.Local)
 {
