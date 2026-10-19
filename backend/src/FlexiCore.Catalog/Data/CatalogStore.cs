@@ -133,7 +133,10 @@ public sealed class CatalogStore(ITenantConnectionFactory factory, CatalogAuditW
         await using var scope = await OpenAsync(userId, companyId, correlationId, ct);
         if (await GateAsync<UnitRecord>(scope, write: true, ct) is { } denied) return denied;
 
-        var existing = await FindUnitAsync(scope, companyId, id, ct);
+        // Serialize unit deletion against product creation/update. A plain SELECT is
+        // insufficient under READ COMMITTED because a concurrent product write can
+        // validate the unit before this transaction soft-deletes it.
+        var existing = await LockUnitForDeleteAsync(scope, companyId, id, ct);
         if (existing is null) return new(CatalogOutcome.NotFound);
         if (existing.DeletedAt is not null) return new(CatalogOutcome.Ok, existing); // already deleted: nothing to write or audit
 
@@ -208,7 +211,7 @@ public sealed class CatalogStore(ITenantConnectionFactory factory, CatalogAuditW
             return same ? new(CatalogOutcome.Ok, existing) : new(CatalogOutcome.Conflict);
         }
 
-        if (input.UnitId is { } unitId && !await UnitExistsAsync(scope, companyId, unitId, ct)) return UnitNotFound();
+        if (input.UnitId is { } unitId && !await LockActiveUnitForProductAsync(scope, companyId, unitId, ct)) return UnitNotFound();
 
         try
         {
@@ -235,7 +238,7 @@ public sealed class CatalogStore(ITenantConnectionFactory factory, CatalogAuditW
         await using var scope = await OpenAsync(userId, companyId, correlationId, ct);
         if (await GateAsync<ProductRecord>(scope, write: true, ct) is { } denied) return denied;
 
-        if (input.UnitId is { } unitId && !await UnitExistsAsync(scope, companyId, unitId, ct)) return UnitNotFound();
+        if (input.UnitId is { } unitId && !await LockActiveUnitForProductAsync(scope, companyId, unitId, ct)) return UnitNotFound();
 
         try
         {
@@ -330,12 +333,30 @@ public sealed class CatalogStore(ITenantConnectionFactory factory, CatalogAuditW
     private static CatalogResult<ProductRecord> UnitNotFound() =>
         new(CatalogOutcome.Invalid, null, new Dictionary<string, string[]> { ["unitId"] = new[] { "Unit not found." } });
 
-    private static async Task<bool> UnitExistsAsync(TenantScope scope, Guid companyId, Guid unitId, CancellationToken ct)
+    /// <summary>
+    /// Locks an active unit while a product references it. FOR SHARE conflicts with
+    /// the FOR UPDATE lock used by soft deletion, serializing the validation and write.
+    /// </summary>
+    private static async Task<bool> LockActiveUnitForProductAsync(
+        TenantScope scope, Guid companyId, Guid unitId, CancellationToken ct)
     {
         await using var command = Cmd(scope,
-            "select 1 from catalog.units where company_id = @company and id = @id and deleted_at is null",
+            "select 1 from catalog.units where company_id = @company and id = @id and deleted_at is null for share",
             Param("company", NpgsqlDbType.Uuid, companyId), Param("id", NpgsqlDbType.Uuid, unitId));
         return await command.ExecuteScalarAsync(ct) is not null;
+    }
+
+    /// <summary>
+    /// Locks a unit before checking whether live products reference it. This must be
+    /// the same lock order used by product creation/update to close the soft-delete race.
+    /// </summary>
+    private static async Task<UnitRecord?> LockUnitForDeleteAsync(
+        TenantScope scope, Guid companyId, Guid id, CancellationToken ct)
+    {
+        await using var command = Cmd(scope,
+            $"select {UnitColumns} from catalog.units where company_id = @company and id = @id for update",
+            Param("company", NpgsqlDbType.Uuid, companyId), Param("id", NpgsqlDbType.Uuid, id));
+        return await ReadOneUnitAsync(command, ct);
     }
 
     private static async Task<UnitRecord?> FindUnitAsync(TenantScope scope, Guid companyId, Guid id, CancellationToken ct)

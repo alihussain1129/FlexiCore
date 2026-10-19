@@ -76,6 +76,55 @@ public sealed class CatalogApiTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task Concurrent_product_create_and_unit_delete_never_leave_a_live_product_using_a_deleted_unit()
+    {
+        await using var w = await CatalogWorld.CreateAsync(postgres);
+
+        // Repeat the competing API operations on separate requests/connections. The
+        // only valid outcomes are: product wins and deletion conflicts, or deletion
+        // wins and product validation rejects the now-deleted unit.
+        for (var i = 0; i < 20; i++)
+        {
+            var unitId = (await w.CreateUnitAsync(w.OwnerToken, $"R{i}", $"Race unit {i}")).GetProperty("id").GetGuid();
+            var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var createTask = Task.Run(async () =>
+            {
+                await start.Task;
+                return await w.SendAsync(HttpMethod.Post, w.Products(), w.OwnerToken,
+                    new { id = Guid.NewGuid(), sku = $"RACE-{i}", name = "Race product", unitId, salePrice = 1m, costPrice = 0m });
+            });
+            var deleteTask = Task.Run(async () =>
+            {
+                await start.Task;
+                return await w.SendAsync(HttpMethod.Delete, w.Unit(unitId), w.OwnerToken);
+            });
+
+            start.TrySetResult();
+            using var create = await createTask;
+            using var delete = await deleteTask;
+
+            if (create.StatusCode == HttpStatusCode.Created)
+            {
+                Assert.Equal(HttpStatusCode.Conflict, delete.StatusCode);
+            }
+            else
+            {
+                Assert.Equal(HttpStatusCode.BadRequest, create.StatusCode);
+                Assert.Equal(HttpStatusCode.NoContent, delete.StatusCode);
+            }
+
+            Assert.Equal(0L, await w.CountAsync($"""
+                select count(*)
+                from catalog.products p
+                join catalog.units u on u.id = p.unit_id and u.company_id = p.company_id
+                where p.company_id = '{w.CompanyId}'::uuid
+                  and p.deleted_at is null
+                  and u.deleted_at is not null
+                """));
+        }
+    }
+
+    [Fact]
     public async Task Codes_and_names_are_trimmed_and_prices_keep_four_decimals()
     {
         await using var w = await CatalogWorld.CreateAsync(postgres);
