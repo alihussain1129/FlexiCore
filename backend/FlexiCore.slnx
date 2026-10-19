@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/FlexiCore.Api/FlexiCore.Api.csproj" />
+    <Project Path="src/FlexiCore.Devices/FlexiCore.Devices.csproj" />
     <Project Path="src/FlexiCore.Identity/FlexiCore.Identity.csproj" />
     <Project Path="src/FlexiCore.Licensing/FlexiCore.Licensing.csproj" />
     <Project Path="src/FlexiCore.Migrations/FlexiCore.Migrations.csproj" />
