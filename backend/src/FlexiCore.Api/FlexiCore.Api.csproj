@@ -13,6 +13,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\FlexiCore.Devices\FlexiCore.Devices.csproj" />
     <ProjectReference Include="..\FlexiCore.Identity\FlexiCore.Identity.csproj" />
     <ProjectReference Include="..\FlexiCore.SharedKernel\FlexiCore.SharedKernel.csproj" />
     <ProjectReference Include="..\FlexiCore.Tenancy\FlexiCore.Tenancy.csproj" />

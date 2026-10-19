@@ -22,11 +22,20 @@ internal sealed class LicenseEnforcementMiddleware(RequestDelegate next)
         new("/openapi"),
     ];
     private const string LocalSetupPath = "/api/v1/local/setup";
+    // Anonymous by design; the endpoint itself requires a valid license, a one-time code and a rate limit.
+    private const string DevicePairPath = "/api/v1/devices/pair";
 
     public async Task InvokeAsync(HttpContext context, LicenseService service)
     {
         if ((HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsPost(context.Request.Method))
             && string.Equals(context.Request.Path.Value, LocalSetupPath, StringComparison.OrdinalIgnoreCase))
+        {
+            await next(context);
+            return;
+        }
+
+        if (HttpMethods.IsPost(context.Request.Method)
+            && string.Equals(context.Request.Path.Value, DevicePairPath, StringComparison.OrdinalIgnoreCase))
         {
             await next(context);
             return;

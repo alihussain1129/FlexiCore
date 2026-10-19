@@ -6,6 +6,7 @@ COPY backend/src/FlexiCore.Identity/FlexiCore.Identity.csproj backend/src/FlexiC
 COPY backend/src/FlexiCore.SharedKernel/FlexiCore.SharedKernel.csproj backend/src/FlexiCore.SharedKernel/
 COPY backend/src/FlexiCore.Tenancy/FlexiCore.Tenancy.csproj backend/src/FlexiCore.Tenancy/
 COPY backend/src/FlexiCore.Licensing/FlexiCore.Licensing.csproj backend/src/FlexiCore.Licensing/
+COPY backend/src/FlexiCore.Devices/FlexiCore.Devices.csproj backend/src/FlexiCore.Devices/
 
 RUN dotnet restore backend/src/FlexiCore.Api/FlexiCore.Api.csproj
 
@@ -14,6 +15,7 @@ COPY backend/src/FlexiCore.Identity/ backend/src/FlexiCore.Identity/
 COPY backend/src/FlexiCore.SharedKernel/ backend/src/FlexiCore.SharedKernel/
 COPY backend/src/FlexiCore.Tenancy/ backend/src/FlexiCore.Tenancy/
 COPY backend/src/FlexiCore.Licensing/ backend/src/FlexiCore.Licensing/
+COPY backend/src/FlexiCore.Devices/ backend/src/FlexiCore.Devices/
 
 RUN dotnet publish backend/src/FlexiCore.Api/FlexiCore.Api.csproj \
     --configuration Release \

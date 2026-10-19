@@ -1,10 +1,18 @@
 using FlexiCore.Api.Health;
 using FlexiCore.Api.Licensing;
 using FlexiCore.Api.Observability;
+using FlexiCore.Devices;
 using FlexiCore.Identity;
 using FlexiCore.Tenancy;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Npgsql;
+
+// Administrator command, e.g. "dotnet FlexiCore.Api.dll pairing-code --owner": prints a one-time pairing code and exits.
+if (args.Length > 0 && string.Equals(args[0], PairingCodeCommand.Name, StringComparison.Ordinal))
+{
+    Environment.ExitCode = await PairingCodeCommand.RunAsync(args[1..]);
+    return;
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -25,6 +33,12 @@ builder.Services.AddOpenApi();
 builder.Services.AddIdentityModule(builder.Configuration, builder.Environment);
 builder.Services.AddTenancyModule();
 builder.Services.AddLicensingModule(builder.Configuration);
+if (DeploymentSettings.From(builder.Configuration).Mode == DeploymentMode.Local)
+{
+    // Activation-only edition: paired devices authenticate instead of users. Hosted mode never registers this.
+    builder.Services.AddDevicesModule(builder.Configuration);
+    builder.Services.AddSingleton<IDeviceActivationGate, LicenseDeviceActivationGate>();
+}
 builder.Services.AddHealthChecks()
     .AddCheck<PostgresHealthCheck>("postgres", tags: ["ready"]);
 
@@ -56,6 +70,10 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = c => c
 app.MapIdentityEndpoints();
 app.MapTenancyEndpoints();
 app.MapLicenseEndpoints();
+if (app.Services.GetRequiredService<DeploymentSettings>().Mode == DeploymentMode.Local)
+{
+    app.MapDeviceEndpoints();
+}
 LocalSetupEndpoints.Map(app, app.Services.GetRequiredService<DeploymentSettings>());
 
 app.Run();
