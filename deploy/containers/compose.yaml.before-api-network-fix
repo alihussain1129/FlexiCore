@@ -1,0 +1,58 @@
+﻿name: flexicore
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: flexicore
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+      FLEXICORE_OWNER_PASSWORD: ${FLEXICORE_OWNER_PASSWORD}
+      FLEXICORE_APP_PASSWORD: ${FLEXICORE_APP_PASSWORD}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d flexicore"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    image: flexicore-migrations:local
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+      target: migrations
+    restart: "no"
+    environment:
+      FLEXICORE_MIGRATIONS_CONNECTION: "Host=postgres;Port=5432;Database=flexicore;Username=flexicore_owner;Password=${FLEXICORE_OWNER_PASSWORD:?FLEXICORE_OWNER_PASSWORD must be configured in .env}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+  api:
+    image: flexicore-api:local
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+      target: runtime
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: "5265"
+      Deployment__Mode: Local
+      License__Directory: /var/lib/flexicore/licenses
+      ConnectionStrings__Default: "Host=127.0.0.1;Port=5432;Database=flexicore;Username=flexicore_app;Password=${FLEXICORE_APP_PASSWORD:?FLEXICORE_APP_PASSWORD must be configured in .env}"
+      Jwt__SigningKey: ${FLEXICORE_JWT_SIGNING_KEY:?FLEXICORE_JWT_SIGNING_KEY must be configured in .env}
+    volumes:
+      - license_data:/var/lib/flexicore/licenses
+    network_mode: host
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:
+  license_data:

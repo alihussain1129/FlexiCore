@@ -1,4 +1,4 @@
-param([switch]$Clean)
+﻿param([switch]$Clean)
 $ErrorActionPreference = "Stop"
 $client = "D:\Projects\flexicore\client"
 $port   = 5265
@@ -58,6 +58,7 @@ if ($Clean) {
 flutter pub get
 if ($LASTEXITCODE -ne 0) { throw "flutter pub get failed" }
 
-Write-Host "`nIn the app, set API address to http://localhost:$port and enter the pairing code." -ForegroundColor Green
+Write-Host "`nStarting the normal FlexiCore ERP app (not the pairing-only app)." -ForegroundColor Green
 Write-Host "Keys: r = hot reload, R = restart, q = quit`n" -ForegroundColor Gray
-flutter run -t lib/main_device.dart -d $phone.id
+flutter run -t lib/main.dart -d "$($phone.id)"
+
