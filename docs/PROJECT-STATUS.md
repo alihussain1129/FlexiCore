@@ -170,3 +170,26 @@ Not yet verified / remaining gaps:
   folder picked through the file dialog.
 - Backups are plain, unencrypted .sqlite files.
 - Scheduled or automatic backups are not implemented.
+
+## Local data menu: profile edit, backup, restore, integrity (code verified 2026-10-21, UI not yet)
+
+Added:
+- catalog_screen.dart: optional `actions` list for app-bar buttons (no other change).
+- features/local_data/local_data_menu.dart: menu with Business profile,
+  Back up now, Restore from backup, Check data integrity. Restore asks for
+  confirmation, closes the database, runs restoreBackup, then reopens the app
+  state from the file on disk.
+- features/profile/presentation/profile_edit_dialog.dart: view/edit profile.
+- main_local.dart wires the menu in; startup flow is otherwise unchanged.
+- test/features/profile_update_test.dart: 2 tests (edit keeps createdAt,
+  rejected edit leaves stored profile unchanged).
+
+Verified: flutter analyze no issues (exit 0); flutter test 142 passed
+(exit 0); main.dart and app.dart have no diff.
+
+Not yet verified:
+- The menu has not been exercised by hand: profile edit, backup via the
+  folder picker, restore via the file picker, integrity dialog, and the
+  .pre-restore safety copy appearing next to the database.
+- No widget tests cover the menu or dialogs.
+- Android behavior (backups go to the app documents folder) is untested.

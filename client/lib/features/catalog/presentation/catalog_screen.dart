@@ -7,7 +7,14 @@ import 'catalog_controller.dart';
 /// Local catalog: units and products, read from and written to the local
 /// database. Never calls the API.
 class CatalogScreen extends StatelessWidget {
-  const CatalogScreen({super.key, required this.controller});
+  /// Extra app-bar buttons supplied by the host app (for example a menu).
+  final List<Widget> actions;
+
+  const CatalogScreen({
+    super.key,
+    required this.controller,
+    this.actions = const [],
+  });
 
   final CatalogController controller;
 
@@ -18,6 +25,7 @@ class CatalogScreen extends StatelessWidget {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Catalog (local)'),
+          actions: actions,
           bottom: const TabBar(
             tabs: [
               Tab(text: 'Products'),
