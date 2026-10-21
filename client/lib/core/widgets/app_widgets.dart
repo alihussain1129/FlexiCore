@@ -544,3 +544,41 @@ class InlineError extends StatelessWidget {
     );
   }
 }
+
+/// Keeps the app usable in a very small window. Below [minWidth] x
+/// [minHeight] the content is laid out at that minimum size and the window
+/// scrolls, instead of every widget overflowing.
+class MinSizeGuard extends StatelessWidget {
+  const MinSizeGuard({
+    super.key,
+    required this.child,
+    this.minWidth = 320,
+    this.minHeight = 300,
+  });
+
+  final Widget child;
+  final double minWidth;
+  final double minHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, box) {
+        if (box.maxWidth >= minWidth && box.maxHeight >= minHeight) {
+          return child;
+        }
+        final w = box.maxWidth < minWidth ? minWidth : box.maxWidth;
+        final h = box.maxHeight < minHeight ? minHeight : box.maxHeight;
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(size: Size(w, h)),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SingleChildScrollView(
+              child: SizedBox(width: w, height: h, child: child),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}

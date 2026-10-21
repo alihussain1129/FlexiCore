@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'core/app_theme.dart';
+import 'core/widgets/app_widgets.dart' show MinSizeGuard;
 import 'data/local/app_database.dart';
 import 'data/local/database_backup.dart';
 import 'data/local/database_opener.dart';
@@ -130,6 +131,8 @@ class _LocalAppState extends State<_LocalApp> {
       title: 'FlexiCore',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
+      builder: (context, child) =>
+          MinSizeGuard(child: child ?? const SizedBox.shrink()),
       home: FutureBuilder<_Boot>(
         future: _boot,
         builder: (context, snapshot) {
