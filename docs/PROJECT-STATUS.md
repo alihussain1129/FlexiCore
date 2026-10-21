@@ -1,8 +1,8 @@
-﻿# FlexiCore Project Status
+# FlexiCore Project Status
 
-Last verified: 2026-10-20
+Last verified: 2026-10-21
 Repository: D:\Projects\flexicore
-Branch at checkpoint: phase-16a-local-db
+Branch at checkpoint: phase-16b-local-profile
 Last previously committed revision: 946c787
 
 ## Product direction
@@ -88,3 +88,48 @@ user files.
 Inspect first. Preserve uncommitted work. Do not rewrite from scratch.
 Do not claim functionality is complete without evidence. Run tests after
 changes and record verified results in this document.
+
+## Local business profile milestone (verified 2026-10-21)
+
+Already present before this change (confirmed by inspection): Drift schema
+version 1 with Units and Products, database_opener.dart, local catalog
+repository/controller/screen, main_local.dart with kLocalCompanyId
+'local-company'. Working tree was clean at ddc4afb.
+
+Added:
+- BusinessProfiles table (single row enforced by CHECK on id): business name,
+  industry, currency, owner name, created/updated timestamps.
+- Local database schema version is now 2. onUpgrade is forward-only:
+  from < 2 runs createTable(businessProfiles); no existing table is dropped
+  or recreated.
+- features/profile: domain rules, LocalProfileRepository (transactional
+  create that never overwrites, update that keeps createdAt),
+  ProfileController (blocks double submit), ProfileSetupScreen.
+- main_local.dart shows the setup screen when no profile exists, otherwise
+  opens the existing catalog. No API or network call is made.
+- Tests: local_profile_test, local_migration_v1_test (a real hand-built
+  schema-v1 file with units/products, soft-deleted rows and a second company;
+  checks ids, company ids, unit references, E4 prices, soft-delete state and
+  indexes after upgrade), profile_controller_test.
+- sqlite3 added as a dev dependency (test fixture only); pubspec.lock also
+  moved hooks, meta and record_use as a side effect.
+
+Verified results:
+- dart run build_runner build: exit 0.
+- flutter analyze: exit 0 (No issues found! (ran in 6.5s)).
+- flutter test: exit 0, 133 tests passed (previous record: 118).
+- git diff on client/lib/main.dart and client/lib/app.dart: empty, so the
+  license/API-backed entry point is unchanged.
+
+Not yet verified / remaining gaps:
+- Manual launch of main_local.dart on Windows (first-run setup, then close
+  and reopen) and on Android has not been done.
+- No profile view/edit control in the catalog UI yet; the repository
+  supports update and is tested, but no screen calls it after setup.
+- Migration test checks catalog tables by direct queries; it does not call
+  LocalCatalogRepository on the migrated file.
+- Optional app lock, backup/restore and integrity checks are not started.
+
+Next recommended milestone: Milestone 2 (local data safety: backup/restore,
+integrity check, separation of profile, app lock and license state), after
+a manual Windows run of this milestone.

@@ -1237,16 +1237,546 @@ class ProductsCompanion extends UpdateCompanion<ProductRow> {
   }
 }
 
+class $BusinessProfilesTable extends BusinessProfiles
+    with TableInfo<$BusinessProfilesTable, BusinessProfileRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $BusinessProfilesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    check: () => id.equals('business-profile'),
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _companyIdMeta = const VerificationMeta(
+    'companyId',
+  );
+  @override
+  late final GeneratedColumn<String> companyId = GeneratedColumn<String>(
+    'company_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _businessNameMeta = const VerificationMeta(
+    'businessName',
+  );
+  @override
+  late final GeneratedColumn<String> businessName = GeneratedColumn<String>(
+    'business_name',
+    aliasedName,
+    false,
+    check: () => ComparableExpr(businessName.length).isBetweenValues(1, 160),
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _industryMeta = const VerificationMeta(
+    'industry',
+  );
+  @override
+  late final GeneratedColumn<String> industry = GeneratedColumn<String>(
+    'industry',
+    aliasedName,
+    false,
+    check: () => ComparableExpr(industry.length).isBetweenValues(1, 80),
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _currencyMeta = const VerificationMeta(
+    'currency',
+  );
+  @override
+  late final GeneratedColumn<String> currency = GeneratedColumn<String>(
+    'currency',
+    aliasedName,
+    false,
+    check: () => currency.length.equals(3),
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _ownerNameMeta = const VerificationMeta(
+    'ownerName',
+  );
+  @override
+  late final GeneratedColumn<String> ownerName = GeneratedColumn<String>(
+    'owner_name',
+    aliasedName,
+    false,
+    check: () => ComparableExpr(ownerName.length).isBetweenValues(1, 120),
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    companyId,
+    businessName,
+    industry,
+    currency,
+    ownerName,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'business_profiles';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<BusinessProfileRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('company_id')) {
+      context.handle(
+        _companyIdMeta,
+        companyId.isAcceptableOrUnknown(data['company_id']!, _companyIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_companyIdMeta);
+    }
+    if (data.containsKey('business_name')) {
+      context.handle(
+        _businessNameMeta,
+        businessName.isAcceptableOrUnknown(
+          data['business_name']!,
+          _businessNameMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_businessNameMeta);
+    }
+    if (data.containsKey('industry')) {
+      context.handle(
+        _industryMeta,
+        industry.isAcceptableOrUnknown(data['industry']!, _industryMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_industryMeta);
+    }
+    if (data.containsKey('currency')) {
+      context.handle(
+        _currencyMeta,
+        currency.isAcceptableOrUnknown(data['currency']!, _currencyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_currencyMeta);
+    }
+    if (data.containsKey('owner_name')) {
+      context.handle(
+        _ownerNameMeta,
+        ownerName.isAcceptableOrUnknown(data['owner_name']!, _ownerNameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_ownerNameMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  BusinessProfileRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return BusinessProfileRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      companyId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}company_id'],
+      )!,
+      businessName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}business_name'],
+      )!,
+      industry: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}industry'],
+      )!,
+      currency: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}currency'],
+      )!,
+      ownerName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_name'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $BusinessProfilesTable createAlias(String alias) {
+    return $BusinessProfilesTable(attachedDatabase, alias);
+  }
+}
+
+class BusinessProfileRow extends DataClass
+    implements Insertable<BusinessProfileRow> {
+  final String id;
+  final String companyId;
+  final String businessName;
+  final String industry;
+  final String currency;
+  final String ownerName;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  const BusinessProfileRow({
+    required this.id,
+    required this.companyId,
+    required this.businessName,
+    required this.industry,
+    required this.currency,
+    required this.ownerName,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['company_id'] = Variable<String>(companyId);
+    map['business_name'] = Variable<String>(businessName);
+    map['industry'] = Variable<String>(industry);
+    map['currency'] = Variable<String>(currency);
+    map['owner_name'] = Variable<String>(ownerName);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  BusinessProfilesCompanion toCompanion(bool nullToAbsent) {
+    return BusinessProfilesCompanion(
+      id: Value(id),
+      companyId: Value(companyId),
+      businessName: Value(businessName),
+      industry: Value(industry),
+      currency: Value(currency),
+      ownerName: Value(ownerName),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory BusinessProfileRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return BusinessProfileRow(
+      id: serializer.fromJson<String>(json['id']),
+      companyId: serializer.fromJson<String>(json['companyId']),
+      businessName: serializer.fromJson<String>(json['businessName']),
+      industry: serializer.fromJson<String>(json['industry']),
+      currency: serializer.fromJson<String>(json['currency']),
+      ownerName: serializer.fromJson<String>(json['ownerName']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'companyId': serializer.toJson<String>(companyId),
+      'businessName': serializer.toJson<String>(businessName),
+      'industry': serializer.toJson<String>(industry),
+      'currency': serializer.toJson<String>(currency),
+      'ownerName': serializer.toJson<String>(ownerName),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  BusinessProfileRow copyWith({
+    String? id,
+    String? companyId,
+    String? businessName,
+    String? industry,
+    String? currency,
+    String? ownerName,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) => BusinessProfileRow(
+    id: id ?? this.id,
+    companyId: companyId ?? this.companyId,
+    businessName: businessName ?? this.businessName,
+    industry: industry ?? this.industry,
+    currency: currency ?? this.currency,
+    ownerName: ownerName ?? this.ownerName,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  BusinessProfileRow copyWithCompanion(BusinessProfilesCompanion data) {
+    return BusinessProfileRow(
+      id: data.id.present ? data.id.value : this.id,
+      companyId: data.companyId.present ? data.companyId.value : this.companyId,
+      businessName: data.businessName.present
+          ? data.businessName.value
+          : this.businessName,
+      industry: data.industry.present ? data.industry.value : this.industry,
+      currency: data.currency.present ? data.currency.value : this.currency,
+      ownerName: data.ownerName.present ? data.ownerName.value : this.ownerName,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('BusinessProfileRow(')
+          ..write('id: $id, ')
+          ..write('companyId: $companyId, ')
+          ..write('businessName: $businessName, ')
+          ..write('industry: $industry, ')
+          ..write('currency: $currency, ')
+          ..write('ownerName: $ownerName, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    companyId,
+    businessName,
+    industry,
+    currency,
+    ownerName,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is BusinessProfileRow &&
+          other.id == this.id &&
+          other.companyId == this.companyId &&
+          other.businessName == this.businessName &&
+          other.industry == this.industry &&
+          other.currency == this.currency &&
+          other.ownerName == this.ownerName &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class BusinessProfilesCompanion extends UpdateCompanion<BusinessProfileRow> {
+  final Value<String> id;
+  final Value<String> companyId;
+  final Value<String> businessName;
+  final Value<String> industry;
+  final Value<String> currency;
+  final Value<String> ownerName;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const BusinessProfilesCompanion({
+    this.id = const Value.absent(),
+    this.companyId = const Value.absent(),
+    this.businessName = const Value.absent(),
+    this.industry = const Value.absent(),
+    this.currency = const Value.absent(),
+    this.ownerName = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  BusinessProfilesCompanion.insert({
+    required String id,
+    required String companyId,
+    required String businessName,
+    required String industry,
+    required String currency,
+    required String ownerName,
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       companyId = Value(companyId),
+       businessName = Value(businessName),
+       industry = Value(industry),
+       currency = Value(currency),
+       ownerName = Value(ownerName),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<BusinessProfileRow> custom({
+    Expression<String>? id,
+    Expression<String>? companyId,
+    Expression<String>? businessName,
+    Expression<String>? industry,
+    Expression<String>? currency,
+    Expression<String>? ownerName,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (companyId != null) 'company_id': companyId,
+      if (businessName != null) 'business_name': businessName,
+      if (industry != null) 'industry': industry,
+      if (currency != null) 'currency': currency,
+      if (ownerName != null) 'owner_name': ownerName,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  BusinessProfilesCompanion copyWith({
+    Value<String>? id,
+    Value<String>? companyId,
+    Value<String>? businessName,
+    Value<String>? industry,
+    Value<String>? currency,
+    Value<String>? ownerName,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return BusinessProfilesCompanion(
+      id: id ?? this.id,
+      companyId: companyId ?? this.companyId,
+      businessName: businessName ?? this.businessName,
+      industry: industry ?? this.industry,
+      currency: currency ?? this.currency,
+      ownerName: ownerName ?? this.ownerName,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (companyId.present) {
+      map['company_id'] = Variable<String>(companyId.value);
+    }
+    if (businessName.present) {
+      map['business_name'] = Variable<String>(businessName.value);
+    }
+    if (industry.present) {
+      map['industry'] = Variable<String>(industry.value);
+    }
+    if (currency.present) {
+      map['currency'] = Variable<String>(currency.value);
+    }
+    if (ownerName.present) {
+      map['owner_name'] = Variable<String>(ownerName.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('BusinessProfilesCompanion(')
+          ..write('id: $id, ')
+          ..write('companyId: $companyId, ')
+          ..write('businessName: $businessName, ')
+          ..write('industry: $industry, ')
+          ..write('currency: $currency, ')
+          ..write('ownerName: $ownerName, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
   late final $UnitsTable units = $UnitsTable(this);
   late final $ProductsTable products = $ProductsTable(this);
+  late final $BusinessProfilesTable businessProfiles = $BusinessProfilesTable(
+    this,
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
-  List<DatabaseSchemaEntity> get allSchemaEntities => [units, products];
+  List<DatabaseSchemaEntity> get allSchemaEntities => [
+    units,
+    products,
+    businessProfiles,
+  ];
 }
 
 typedef $$UnitsTableCreateCompanionBuilder = UnitsCompanion Function({
@@ -2051,6 +2581,286 @@ typedef $$ProductsTableProcessedTableManager =
       ProductRow,
       PrefetchHooks Function({bool unitId})
     >;
+typedef $$BusinessProfilesTableCreateCompanionBuilder =
+    BusinessProfilesCompanion Function({
+      required String id,
+      required String companyId,
+      required String businessName,
+      required String industry,
+      required String currency,
+      required String ownerName,
+      required DateTime createdAt,
+      required DateTime updatedAt,
+      Value<int> rowid,
+    });
+typedef $$BusinessProfilesTableUpdateCompanionBuilder =
+    BusinessProfilesCompanion Function({
+      Value<String> id,
+      Value<String> companyId,
+      Value<String> businessName,
+      Value<String> industry,
+      Value<String> currency,
+      Value<String> ownerName,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$BusinessProfilesTableFilterComposer
+    extends Composer<_$AppDatabase, $BusinessProfilesTable> {
+  $$BusinessProfilesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get companyId => $composableBuilder(
+    column: $table.companyId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get businessName => $composableBuilder(
+    column: $table.businessName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get industry => $composableBuilder(
+    column: $table.industry,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get currency => $composableBuilder(
+    column: $table.currency,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerName => $composableBuilder(
+    column: $table.ownerName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$BusinessProfilesTableOrderingComposer
+    extends Composer<_$AppDatabase, $BusinessProfilesTable> {
+  $$BusinessProfilesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get companyId => $composableBuilder(
+    column: $table.companyId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get businessName => $composableBuilder(
+    column: $table.businessName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get industry => $composableBuilder(
+    column: $table.industry,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get currency => $composableBuilder(
+    column: $table.currency,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get ownerName => $composableBuilder(
+    column: $table.ownerName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$BusinessProfilesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $BusinessProfilesTable> {
+  $$BusinessProfilesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get companyId =>
+      $composableBuilder(column: $table.companyId, builder: (column) => column);
+
+  GeneratedColumn<String> get businessName => $composableBuilder(
+    column: $table.businessName,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get industry =>
+      $composableBuilder(column: $table.industry, builder: (column) => column);
+
+  GeneratedColumn<String> get currency =>
+      $composableBuilder(column: $table.currency, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerName =>
+      $composableBuilder(column: $table.ownerName, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$BusinessProfilesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $BusinessProfilesTable,
+          BusinessProfileRow,
+          $$BusinessProfilesTableFilterComposer,
+          $$BusinessProfilesTableOrderingComposer,
+          $$BusinessProfilesTableAnnotationComposer,
+          $$BusinessProfilesTableCreateCompanionBuilder,
+          $$BusinessProfilesTableUpdateCompanionBuilder,
+          (
+            BusinessProfileRow,
+            BaseReferences<
+              _$AppDatabase,
+              $BusinessProfilesTable,
+              BusinessProfileRow
+            >,
+          ),
+          BusinessProfileRow,
+          PrefetchHooks Function()
+        > {
+  $$BusinessProfilesTableTableManager(
+    _$AppDatabase db,
+    $BusinessProfilesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$BusinessProfilesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$BusinessProfilesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$BusinessProfilesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> companyId = const Value.absent(),
+                Value<String> businessName = const Value.absent(),
+                Value<String> industry = const Value.absent(),
+                Value<String> currency = const Value.absent(),
+                Value<String> ownerName = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => BusinessProfilesCompanion(
+                id: id,
+                companyId: companyId,
+                businessName: businessName,
+                industry: industry,
+                currency: currency,
+                ownerName: ownerName,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String companyId,
+                required String businessName,
+                required String industry,
+                required String currency,
+                required String ownerName,
+                required DateTime createdAt,
+                required DateTime updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => BusinessProfilesCompanion.insert(
+                id: id,
+                companyId: companyId,
+                businessName: businessName,
+                industry: industry,
+                currency: currency,
+                ownerName: ownerName,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$BusinessProfilesTable, BusinessProfileRow>(
+                    table,
+                  ),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $BusinessProfilesTable,
+                    BusinessProfileRow
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$BusinessProfilesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $BusinessProfilesTable,
+      BusinessProfileRow,
+      $$BusinessProfilesTableFilterComposer,
+      $$BusinessProfilesTableOrderingComposer,
+      $$BusinessProfilesTableAnnotationComposer,
+      $$BusinessProfilesTableCreateCompanionBuilder,
+      $$BusinessProfilesTableUpdateCompanionBuilder,
+      (
+        BusinessProfileRow,
+        BaseReferences<
+          _$AppDatabase,
+          $BusinessProfilesTable,
+          BusinessProfileRow
+        >,
+      ),
+      BusinessProfileRow,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -2059,4 +2869,6 @@ class $AppDatabaseManager {
       $$UnitsTableTableManager(_db, _db.units);
   $$ProductsTableTableManager get products =>
       $$ProductsTableTableManager(_db, _db.products);
+  $$BusinessProfilesTableTableManager get businessProfiles =>
+      $$BusinessProfilesTableTableManager(_db, _db.businessProfiles);
 }

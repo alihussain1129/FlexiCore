@@ -50,11 +50,31 @@ class Products extends Table {
   Set<Column> get primaryKey => {id};
 }
 
-@DriftDatabase(tables: [Units, Products])
+/// The single local business profile. The CHECK on [id] guarantees at most
+/// one row exists, so a second profile can never be inserted by accident.
+@DataClassName('BusinessProfileRow')
+class BusinessProfiles extends Table {
+  TextColumn get id => text().check(id.equals('business-profile'))();
+  TextColumn get companyId => text()();
+  TextColumn get businessName =>
+      text().check(businessName.length.isBetweenValues(1, 160))();
+  TextColumn get industry =>
+      text().check(industry.length.isBetweenValues(1, 80))();
+  TextColumn get currency => text().check(currency.length.equals(3))();
+  TextColumn get ownerName =>
+      text().check(ownerName.length.isBetweenValues(1, 120))();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+@DriftDatabase(tables: [Units, Products, BusinessProfiles])
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.executor);
 
-  static const int currentSchemaVersion = 1;
+  static const int currentSchemaVersion = 2;
 
   @override
   int get schemaVersion => currentSchemaVersion;
@@ -83,7 +103,12 @@ class AppDatabase extends _$AppDatabase {
     },
     // Forward-only. Future schema versions add a step here per version.
     // Never drop or recreate user tables to "fix" a migration.
-    onUpgrade: (m, from, to) async {},
+    onUpgrade: (m, from, to) async {
+      // v1 -> v2: adds the business profile. Existing tables are untouched.
+      if (from < 2) {
+        await m.createTable(businessProfiles);
+      }
+    },
     beforeOpen: (details) async {
       // Must run outside a transaction, which is why it lives here.
       await customStatement('PRAGMA foreign_keys = ON');
