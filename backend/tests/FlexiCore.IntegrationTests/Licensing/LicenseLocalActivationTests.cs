@@ -72,13 +72,18 @@ public sealed class LicenseLocalActivationTests(PostgresFixture postgres)
                 new FileLicenseStore(dir), new LicenseVerifier(new[] { signer.Trusted() }, time), time));
         }
 
-        var names = new[] { "Deployment__Mode", "License__Directory", "License__ImportPermitPerMinute" };
+        var names = new[] {
+            "Deployment__Mode", "License__Directory",
+            "License__ImportPermitPerMinute", "License__LocalActivationPeerAddresses"
+        };
         var saved = names.Select(n => (Name: n, Old: Environment.GetEnvironmentVariable(n))).ToArray();
         try
         {
             Environment.SetEnvironmentVariable("Deployment__Mode", local ? "Local" : null);
             Environment.SetEnvironmentVariable("License__Directory", local ? dir : null);
             Environment.SetEnvironmentVariable("License__ImportPermitPerMinute", local ? "100" : null);
+            Environment.SetEnvironmentVariable(
+                "License__LocalActivationPeerAddresses", local ? "172.18.0.1" : null);
 
             var app = createUser
                 ? await Scenario.StartWithUserAsync(postgres, "100000", Configure)
@@ -113,6 +118,30 @@ public sealed class LicenseLocalActivationTests(PostgresFixture postgres)
             request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         }
         return h.App.Client.SendAsync(request);
+    }
+
+    [Fact]
+    public async Task Local_anonymous_configured_docker_gateway_can_read_status()
+    {
+        await using var h = await StartAsync(local: true);
+        h.Remote.Value = IPAddress.Parse("172.18.0.1");
+
+        var response = await SendAsync(h, HttpMethod.Get, StatusUrl, host: "localhost");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Local_anonymous_configured_gateway_is_rejected_with_forwarding_headers()
+    {
+        await using var h = await StartAsync(local: true);
+        h.Remote.Value = IPAddress.Parse("172.18.0.1");
+
+        var response = await SendAsync(
+            h, HttpMethod.Get, StatusUrl, host: "localhost",
+            headers: new[] { ("X-Forwarded-For", "127.0.0.1") });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     // ---- Local mode: anonymous loopback is allowed ----

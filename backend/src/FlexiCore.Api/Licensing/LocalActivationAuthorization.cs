@@ -8,14 +8,17 @@ namespace FlexiCore.Api.Licensing;
 internal sealed class LocalActivationRequirement : IAuthorizationRequirement;
 
 /// <summary>Succeeds for any authenticated user, or for an anonymous request that is provably local.</summary>
-internal sealed class LocalActivationHandler(IHttpContextAccessor httpContextAccessor)
+internal sealed class LocalActivationHandler(
+    IHttpContextAccessor httpContextAccessor,
+    Microsoft.Extensions.Configuration.IConfiguration configuration)
     : AuthorizationHandler<LocalActivationRequirement>
 {
     protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, LocalActivationRequirement requirement)
     {
         var http = context.Resource as HttpContext ?? httpContextAccessor.HttpContext;
         if (context.User.Identity?.IsAuthenticated == true
-            || (http is not null && LocalActivationAuthorization.IsLocalAnonymousRequest(http)))
+            || (http is not null && LocalActivationAuthorization.IsLocalAnonymousRequest(
+                http, configuration["License:LocalActivationPeerAddresses"])))
         {
             context.Succeed(requirement);
         }
@@ -44,12 +47,34 @@ internal static class LocalActivationAuthorization
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IAuthorizationHandler, LocalActivationHandler>());
     }
 
-    public static bool IsLocalAnonymousRequest(HttpContext http)
+    public static bool IsLocalAnonymousRequest(HttpContext http) =>
+        IsLocalAnonymousRequest(http, null);
+
+    public static bool IsLocalAnonymousRequest(HttpContext http, string? configuredPeerAddresses)
     {
         var address = http.Connection.RemoteIpAddress;
         if (address is null) return false;
         if (address.IsIPv4MappedToIPv6) address = address.MapToIPv4();
-        if (!System.Net.IPAddress.IsLoopback(address)) return false;
+
+        var trustedPeer = System.Net.IPAddress.IsLoopback(address);
+
+        if (!trustedPeer && !string.IsNullOrWhiteSpace(configuredPeerAddresses))
+        {
+            foreach (var candidate in configuredPeerAddresses.Split(
+                ',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!System.Net.IPAddress.TryParse(candidate, out var allowed)) continue;
+                if (allowed.IsIPv4MappedToIPv6) allowed = allowed.MapToIPv4();
+
+                if (address.Equals(allowed))
+                {
+                    trustedPeer = true;
+                    break;
+                }
+            }
+        }
+
+        if (!trustedPeer) return false;
 
         foreach (var header in ForwardingHeaders)
             if (http.Request.Headers.ContainsKey(header)) return false;

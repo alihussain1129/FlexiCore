@@ -7,6 +7,7 @@ COPY backend/src/FlexiCore.SharedKernel/FlexiCore.SharedKernel.csproj backend/sr
 COPY backend/src/FlexiCore.Tenancy/FlexiCore.Tenancy.csproj backend/src/FlexiCore.Tenancy/
 COPY backend/src/FlexiCore.Licensing/FlexiCore.Licensing.csproj backend/src/FlexiCore.Licensing/
 COPY backend/src/FlexiCore.Devices/FlexiCore.Devices.csproj backend/src/FlexiCore.Devices/
+COPY backend/src/FlexiCore.Catalog/FlexiCore.Catalog.csproj backend/src/FlexiCore.Catalog/
 
 RUN dotnet restore backend/src/FlexiCore.Api/FlexiCore.Api.csproj
 
@@ -16,6 +17,7 @@ COPY backend/src/FlexiCore.SharedKernel/ backend/src/FlexiCore.SharedKernel/
 COPY backend/src/FlexiCore.Tenancy/ backend/src/FlexiCore.Tenancy/
 COPY backend/src/FlexiCore.Licensing/ backend/src/FlexiCore.Licensing/
 COPY backend/src/FlexiCore.Devices/ backend/src/FlexiCore.Devices/
+COPY backend/src/FlexiCore.Catalog/ backend/src/FlexiCore.Catalog/
 
 RUN dotnet publish backend/src/FlexiCore.Api/FlexiCore.Api.csproj \
     --configuration Release \
@@ -24,6 +26,7 @@ RUN dotnet publish backend/src/FlexiCore.Api/FlexiCore.Api.csproj \
     /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends libgssapi-krb5-2 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
 ENV ASPNETCORE_HTTP_PORTS=8080
@@ -48,6 +51,7 @@ RUN dotnet publish backend/src/FlexiCore.Migrations/FlexiCore.Migrations.csproj 
     /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/runtime:10.0 AS migrations
+RUN apt-get update && apt-get install -y --no-install-recommends libgssapi-krb5-2 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
 COPY --from=migrations-build /app/migrations/ ./

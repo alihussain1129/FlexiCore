@@ -308,7 +308,9 @@ class _LicenseScreenState extends State<LicenseScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        Row(
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
           children: [
             TextButton.icon(
               onPressed: controller.busy ? null : _paste,
@@ -320,7 +322,6 @@ class _LicenseScreenState extends State<LicenseScreen> {
               icon: const Icon(Icons.folder_open),
               label: const Text('Choose .lic file'),
             ),
-            const Spacer(),
             FilledButton.icon(
               onPressed: controller.busy
                   ? null
