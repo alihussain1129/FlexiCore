@@ -12,9 +12,11 @@ import 'features/catalog/data/local_catalog_repository.dart';
 import 'features/catalog/presentation/catalog_controller.dart';
 import 'features/catalog/presentation/catalog_screen.dart';
 import 'features/local_data/local_data_menu.dart';
+import 'features/overview/overview_screen.dart';
 import 'features/profile/data/local_profile_repository.dart';
 import 'features/profile/presentation/profile_controller.dart';
 import 'features/profile/presentation/profile_setup_screen.dart';
+import 'features/shell/app_shell.dart';
 
 /// Local entry point: runs entirely on the local database and never creates
 /// an API client, so it works with the network off.
@@ -93,6 +95,35 @@ class _LocalAppState extends State<_LocalApp> {
     super.dispose();
   }
 
+  Widget _workspace(_Boot boot) {
+    Widget menu() =>
+        LocalDataMenu(db: boot.db, profile: boot.profile, onRestore: _restore);
+    return AppShell(
+      destinations: [
+        ShellDestination(
+          label: 'Overview',
+          icon: Icons.dashboard_outlined,
+          selectedIcon: Icons.dashboard,
+          builder: (context) => OverviewScreen(
+            profile: boot.profile,
+            catalog: boot.catalog,
+            actions: [menu()],
+          ),
+        ),
+        ShellDestination(
+          label: 'Products',
+          icon: Icons.sell_outlined,
+          selectedIcon: Icons.sell,
+          builder: (context) => CatalogScreen(
+            controller: boot.catalog,
+            businessName: boot.profile.profile?.businessName,
+            actions: [menu()],
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -118,17 +149,7 @@ class _LocalAppState extends State<_LocalApp> {
             listenable: boot.profile,
             builder: (context, _) => boot.profile.profile == null
                 ? ProfileSetupScreen(controller: boot.profile)
-                : CatalogScreen(
-                    controller: boot.catalog,
-                    businessName: boot.profile.profile?.businessName,
-                    actions: [
-                      LocalDataMenu(
-                        db: boot.db,
-                        profile: boot.profile,
-                        onRestore: _restore,
-                      ),
-                    ],
-                  ),
+                : _workspace(boot),
           );
         },
       ),
