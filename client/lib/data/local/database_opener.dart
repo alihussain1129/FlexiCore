@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:drift/native.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:sqlite3/sqlite3.dart' as sql;
 
 import 'app_database.dart';
 
@@ -44,6 +45,9 @@ Future<AppDatabase> openAppDatabase({
   }
 
   final file = File(p.join(dir.path, fileName));
+  // An older database gets a verified copy before any upgrade runs.
+  await copyBeforeUpgrade(file);
+
   final db = AppDatabase(
     NativeDatabase.createInBackground(
       file,
@@ -69,4 +73,83 @@ Future<AppDatabase> openAppDatabase({
     );
   }
   return db;
+}
+
+String _two(int n) => n.toString().padLeft(2, '0');
+
+/// Before an older database is upgraded, writes a verified copy next to it
+/// (`<file>.pre-v3-<time>`). If the copy cannot be made the upgrade is not
+/// started and the data file is left exactly as it was.
+/// Returns the copy, or null when no upgrade is pending.
+Future<File?> copyBeforeUpgrade(File file, {DateTime Function()? clock}) async {
+  if (!file.existsSync()) return null;
+
+  sql.Database? raw;
+  sql.Database? check;
+  File? target;
+  var createdByThisAttempt = false;
+
+  try {
+    raw = sql.sqlite3.open(file.path);
+    final version = raw.select('PRAGMA user_version').first.values.first as int;
+
+    if (version < 1 || version >= AppDatabase.currentSchemaVersion) {
+      return null;
+    }
+
+    final t = (clock ?? DateTime.now)();
+    final stamp =
+        '${t.year}${_two(t.month)}${_two(t.day)}-'
+        '${_two(t.hour)}${_two(t.minute)}${_two(t.second)}';
+
+    final basePath =
+        '${file.path}.pre-v${AppDatabase.currentSchemaVersion}-$stamp';
+
+    // Never reuse or overwrite a pre-existing safety copy.
+    var candidate = File(basePath);
+    var suffix = 1;
+
+    while (candidate.existsSync()) {
+      candidate = File('$basePath-$suffix');
+      suffix++;
+    }
+
+    target = candidate;
+    final quoted = candidate.path.replaceAll("'", "''");
+    raw.execute("VACUUM INTO '$quoted'");
+    createdByThisAttempt = true;
+
+    check = sql.sqlite3.open(candidate.path, mode: sql.OpenMode.readOnly);
+
+    final copied = check.select('PRAGMA user_version').first.values.first;
+    final integrity = check
+        .select('PRAGMA integrity_check')
+        .first
+        .values
+        .first
+        .toString();
+
+    if (copied != version || integrity != 'ok') {
+      throw StateError('the safety copy did not verify');
+    }
+
+    return target;
+  } catch (e) {
+    // Delete only a copy this attempt successfully created.
+    if (createdByThisAttempt && target != null) {
+      try {
+        if (target.existsSync()) target.deleteSync();
+      } catch (_) {}
+    }
+
+    throw LocalDatabaseException(
+      'A safety copy could not be made before upgrading, so the upgrade was '
+      'not started. Your data file has not been modified or deleted.',
+      path: file.path,
+      cause: e,
+    );
+  } finally {
+    check?.close();
+    raw?.close();
+  }
 }

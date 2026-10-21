@@ -1,6 +1,8 @@
 // ignore_for_file: recursive_getters
 import 'package:drift/drift.dart';
 
+import 'inventory_schema.dart';
+
 part 'app_database.g.dart';
 
 /// Local mirror of `catalog.units` (server migration 0012).
@@ -70,11 +72,94 @@ class BusinessProfiles extends Table {
   Set<Column> get primaryKey => {id};
 }
 
-@DriftDatabase(tables: [Units, Products, BusinessProfiles])
+/// A place where stock is kept. At most one active warehouse per company is
+/// the default (enforced by a partial unique index, see inventory_schema.dart).
+@DataClassName('WarehouseRow')
+class Warehouses extends Table {
+  TextColumn get id => text()();
+  TextColumn get companyId => text()();
+  TextColumn get code => text().check(code.length.isBetweenValues(1, 20))();
+  TextColumn get name => text().check(name.length.isBetweenValues(1, 160))();
+  BoolColumn get isDefault =>
+      boolean().named('is_default').withDefault(const Constant(false))();
+  IntColumn get version => integer().withDefault(const Constant(1))();
+  DateTimeColumn get updatedAt => dateTime()();
+  TextColumn get originDeviceId => text().nullable()();
+  DateTimeColumn get deletedAt => dateTime().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+/// Append-only stock ledger: rows are never updated or deleted (triggers
+/// enforce it). A correction is a new reversing row. Quantities are signed
+/// integer ten-thousandths: receipts are positive, issues are negative.
+@DataClassName('StockMovementRow')
+class StockMovements extends Table {
+  TextColumn get id => text()();
+  TextColumn get companyId => text()();
+  TextColumn get productId => text().references(Products, #id)();
+  TextColumn get warehouseId => text().references(Warehouses, #id)();
+  TextColumn get movementType => text().check(
+    movementType.isIn(const [
+      'opening',
+      'receipt',
+      'issue',
+      'adjustment',
+      'reversal',
+    ]),
+  )();
+  IntColumn get qtyE4 =>
+      integer().named('qty_e4').check(qtyE4.equals(0).not())();
+  IntColumn get unitCostE4 => integer()
+      .named('unit_cost_e4')
+      .nullable()
+      .check(unitCostE4.isBiggerOrEqualValue(0))();
+  TextColumn get reason => text().nullable()();
+  TextColumn get sourceType => text().nullable()();
+  TextColumn get sourceId => text().nullable()();
+  TextColumn get reversesMovementId => text().nullable()();
+  TextColumn get clientRequestId =>
+      text().check(clientRequestId.length.isBetweenValues(1, 80))();
+  DateTimeColumn get occurredAt => dateTime()();
+  DateTimeColumn get createdAt => dateTime()();
+  TextColumn get createdBy =>
+      text().check(createdBy.length.isBetweenValues(1, 120))();
+  TextColumn get originDeviceId => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+/// Current quantity per product and warehouse. A projection of the ledger,
+/// updated in the same transaction as every movement. Never negative.
+@DataClassName('StockBalanceRow')
+class StockBalances extends Table {
+  TextColumn get companyId => text()();
+  TextColumn get productId => text().references(Products, #id)();
+  TextColumn get warehouseId => text().references(Warehouses, #id)();
+  IntColumn get qtyE4 =>
+      integer().named('qty_e4').check(qtyE4.isBiggerOrEqualValue(0))();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {companyId, productId, warehouseId};
+}
+
+@DriftDatabase(
+  tables: [
+    Units,
+    Products,
+    BusinessProfiles,
+    Warehouses,
+    StockMovements,
+    StockBalances,
+  ],
+)
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.executor);
 
-  static const int currentSchemaVersion = 2;
+  static const int currentSchemaVersion = 3;
 
   @override
   int get schemaVersion => currentSchemaVersion;
@@ -100,6 +185,9 @@ class AppDatabase extends _$AppDatabase {
       for (final statement in _indexStatements) {
         await customStatement(statement);
       }
+      for (final statement in kInventorySchemaStatements) {
+        await customStatement(statement);
+      }
     },
     // Forward-only. Future schema versions add a step here per version.
     // Never drop or recreate user tables to "fix" a migration.
@@ -107,6 +195,16 @@ class AppDatabase extends _$AppDatabase {
       // v1 -> v2: adds the business profile. Existing tables are untouched.
       if (from < 2) {
         await m.createTable(businessProfiles);
+      }
+
+      // v2 -> v3: inventory. Existing tables are untouched.
+      if (from < 3) {
+        await m.createTable(warehouses);
+        await m.createTable(stockMovements);
+        await m.createTable(stockBalances);
+        for (final statement in kInventorySchemaStatements) {
+          await customStatement(statement);
+        }
       }
     },
     beforeOpen: (details) async {

@@ -43,6 +43,23 @@ String _stamp(DateTime t) =>
 
 String backupFileName(DateTime t) => 'flexicore-backup-${_stamp(t)}.sqlite';
 
+/// Returns one unused stem for a group of related sibling files.
+/// All suffix variants are checked before the stem is selected.
+String _availableStem(String baseStem, List<String> suffixes) {
+  var candidate = baseStem;
+  var index = 1;
+
+  bool isAvailable(String stem) =>
+      suffixes.every((suffix) => !File('$stem$suffix').existsSync());
+
+  while (!isAvailable(candidate)) {
+    candidate = '$baseStem-$index';
+    index++;
+  }
+
+  return candidate;
+}
+
 void _tryDelete(File f) {
   try {
     if (f.existsSync()) {
@@ -105,7 +122,10 @@ BackupInfo validateBackupFile(File file) {
   } on BackupException {
     rethrow;
   } catch (e) {
-    throw BackupException('That file is not a readable FlexiCore backup.', cause: e);
+    throw BackupException(
+      'That file is not a readable FlexiCore backup.',
+      cause: e,
+    );
   } finally {
     raw?.close();
   }
@@ -127,18 +147,33 @@ Future<File> createBackup(AppDatabase db, File destination) async {
   }
 
   final partial = File('${destination.path}.partial');
-  _tryDelete(partial); // our own leftover temp file from an earlier attempt
+
+  // Never delete an artifact left by an earlier or interrupted attempt.
+  if (partial.existsSync()) {
+    throw BackupException(
+      'A partial backup file already exists. Preserve it and inspect it '
+      'before retrying the backup.',
+    );
+  }
+
+  var partialCreatedByAttempt = false;
   try {
     final quoted = partial.path.replaceAll("'", "''");
     await db.customStatement("VACUUM INTO '$quoted'");
+    partialCreatedByAttempt = true;
+
     validateBackupFile(partial);
     partial.renameSync(destination.path);
     return destination;
   } on BackupException {
-    _tryDelete(partial);
+    if (partialCreatedByAttempt) {
+      _tryDelete(partial);
+    }
     rethrow;
   } catch (e) {
-    _tryDelete(partial);
+    if (partialCreatedByAttempt) {
+      _tryDelete(partial);
+    }
     throw BackupException(
       'The backup could not be created. Your database was not changed.',
       cause: e,
@@ -146,14 +181,37 @@ Future<File> createBackup(AppDatabase db, File destination) async {
   }
 }
 
-void _rollback(Map<File, File> moved) {
-  moved.forEach((from, to) {
+List<String> _rollback(Map<File, File> moved) {
+  final failures = <String>[];
+
+  for (final entry in moved.entries) {
+    final from = entry.key;
+    final to = entry.value;
+
     try {
       if (to.existsSync() && !from.existsSync()) {
         to.renameSync(from.path);
       }
-    } catch (_) {}
-  });
+
+      if (!from.existsSync() || to.existsSync()) {
+        failures.add(from.path);
+      }
+    } catch (e) {
+      failures.add('${from.path}: $e');
+    }
+  }
+
+  return failures;
+}
+
+String _recoveryFailureMessage(List<String> failures) {
+  if (failures.isEmpty) {
+    return 'Your previous data was put back.';
+  }
+
+  return 'Recovery is incomplete. Keep FlexiCore closed and do not use '
+      'the database until its files have been inspected. Contact support '
+      'for help recovering the previous data.';
 }
 
 /// Replaces the local database with [backup].
@@ -174,13 +232,23 @@ Future<RestoreResult> restoreBackup({
   final staged = File('${live.path}.restoring');
 
   // 1. Stage a verified copy next to the live file. Live is untouched so far.
+  // Never delete a pre-existing staging file automatically.
+  var stagedCreatedByAttempt = false;
   try {
     directory.createSync(recursive: true);
-    _tryDelete(staged); // our own leftover temp file
+    if (staged.existsSync()) {
+      throw BackupException(
+        'A restore staging file already exists. Preserve it and inspect it '
+        'before retrying the restore.',
+      );
+    }
+    stagedCreatedByAttempt = true;
     backup.copySync(staged.path);
     validateBackupFile(staged);
   } catch (e) {
-    _tryDelete(staged);
+    if (stagedCreatedByAttempt) {
+      _tryDelete(staged);
+    }
     if (e is BackupException) {
       rethrow;
     }
@@ -193,11 +261,16 @@ Future<RestoreResult> restoreBackup({
   // 2. Move the current database (and any WAL files) aside, then swap.
   final moved = <File, File>{};
   File? safety;
+  final safetyStem = _availableStem('${live.path}.pre-restore-$stamp', const [
+    '',
+    '-wal',
+    '-shm',
+  ]);
   try {
     for (final suffix in const ['', '-wal', '-shm']) {
       final from = File('${live.path}$suffix');
       if (from.existsSync()) {
-        final to = File('${live.path}.pre-restore-$stamp$suffix');
+        final to = File('$safetyStem$suffix');
         from.renameSync(to.path);
         moved[from] = to;
         if (suffix == '') {
@@ -207,9 +280,10 @@ Future<RestoreResult> restoreBackup({
     }
     staged.renameSync(live.path);
   } catch (e) {
-    _rollback(moved);
+    final recoveryFailures = _rollback(moved);
     throw BackupException(
-      'The restore could not be completed. Your previous data was put back.',
+      'The restore could not be completed. '
+      '${_recoveryFailureMessage(recoveryFailures)}',
       cause: e,
     );
   }
@@ -227,18 +301,31 @@ Future<RestoreResult> restoreBackup({
     }
   } catch (e) {
     // Keep the bad file for inspection, put the old database back.
+    final failedStem = _availableStem(
+      '${live.path}.failed-restore-$stamp',
+      const ['', '-wal', '-shm'],
+    );
+    final artifactMoveFailures = <String>[];
     for (final suffix in const ['', '-wal', '-shm']) {
       final bad = File('${live.path}$suffix');
       try {
         if (bad.existsSync()) {
-          bad.renameSync('${live.path}.failed-restore-$stamp$suffix');
+          bad.renameSync('$failedStem$suffix');
         }
-      } catch (_) {}
+      } catch (_) {
+        artifactMoveFailures.add(
+          'A failed-restore artifact could not be preserved.',
+        );
+      }
     }
-    _rollback(moved);
+
+    final recoveryFailures = <String>[
+      ...artifactMoveFailures,
+      ..._rollback(moved),
+    ];
     throw BackupException(
       'The restored file could not be opened or failed its integrity check. '
-      'Your previous data was put back.',
+      '${_recoveryFailureMessage(recoveryFailures)}',
       cause: e,
     );
   }

@@ -97,11 +97,11 @@ void main() {
 
   DateTime ts(int s) => DateTime.fromMillisecondsSinceEpoch(s * 1000);
 
-  test('v1 -> v2 keeps every unit and product exactly as it was', () async {
+  test('v1 -> v3 keeps every unit and product exactly as it was', () async {
     final db = await openAppDatabase(directory: dir);
 
     final version = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(version.read<int>('user_version'), 2);
+    expect(version.read<int>('user_version'), 3);
 
     final units = await db.select(db.units).get();
     expect(units.map((u) => u.id).toSet(), {'u-pcs', 'u-old'});
@@ -123,16 +123,20 @@ void main() {
     final p2 = products.firstWhere((p) => p.id == 'p-2');
     expect(p2.unitId, 'u-old');
     expect(p2.deletedAt, ts(1700000600));
-    expect(products.firstWhere((p) => p.id == 'p-3').companyId, 'other-company');
+    expect(
+      products.firstWhere((p) => p.id == 'p-3').companyId,
+      'other-company',
+    );
 
     await db.close();
   });
 
   test('indexes survive and the new table exists and is empty', () async {
     final db = await openAppDatabase(directory: dir);
-    final names = (await db.customSelect('SELECT name FROM sqlite_master').get())
-        .map((r) => r.read<String>('name'))
-        .toSet();
+    final names =
+        (await db.customSelect('SELECT name FROM sqlite_master').get())
+            .map((r) => r.read<String>('name'))
+            .toSet();
     expect(
       names,
       containsAll([
@@ -164,14 +168,16 @@ void main() {
 
     final reopened = await openAppDatabase(directory: dir);
     expect(
-      (await LocalProfileRepository(reopened, companyId: 'local-company').load())
-          ?.businessName,
+      (await LocalProfileRepository(
+        reopened,
+        companyId: 'local-company',
+      ).load())?.businessName,
       'Noor Pharmacy',
     );
     await reopened.close();
   });
 
-  test('currentSchemaVersion is 2', () {
-    expect(AppDatabase.currentSchemaVersion, 2);
+  test('currentSchemaVersion is 3', () {
+    expect(AppDatabase.currentSchemaVersion, 3);
   });
 }

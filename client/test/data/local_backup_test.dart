@@ -7,6 +7,7 @@ import 'package:flexicore_client/data/local/database_integrity.dart';
 import 'package:flexicore_client/data/local/database_opener.dart';
 import 'package:flexicore_client/features/profile/data/local_profile_repository.dart';
 import 'package:flexicore_client/features/profile/domain/business_profile.dart';
+import 'package:path/path.dart' as p;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqlite3/sqlite3.dart' as sql;
 
@@ -91,7 +92,7 @@ void main() {
       File('${dir.path}/backups/b1.sqlite'),
     );
     expect(backup.existsSync(), isTrue);
-    expect(validateBackupFile(backup).schemaVersion, 2);
+    expect(validateBackupFile(backup).schemaVersion, 3);
     expect(File('${backup.path}.partial').existsSync(), isFalse);
     expect(await db.select(db.products).get(), hasLength(1));
     await db.close();
@@ -100,7 +101,10 @@ void main() {
   test('backup then restore returns to the backed-up state', () async {
     var db = await openAppDatabase(directory: dir);
     await _seed(db);
-    await LocalProfileRepository(db, companyId: 'local-company').create(_profile);
+    await LocalProfileRepository(
+      db,
+      companyId: 'local-company',
+    ).create(_profile);
     final backup = await createBackup(
       db,
       File('${dir.path}/backups/b1.sqlite'),
@@ -113,7 +117,7 @@ void main() {
       directory: dir,
       clock: () => DateTime(2026, 10, 22, 12),
     );
-    expect(result.schemaVersion, 2);
+    expect(result.schemaVersion, 3);
     expect(result.safetyCopy, isNotNull);
     expect(result.safetyCopy!.existsSync(), isTrue);
     expect(_count(result.safetyCopy!.path, 'products'), 2);
@@ -136,29 +140,116 @@ void main() {
     final db = await openAppDatabase(directory: dir);
     final target = File('${dir.path}/existing.sqlite')
       ..writeAsStringSync('keep me');
-    await expectLater(createBackup(db, target), throwsA(isA<BackupException>()));
+    await expectLater(
+      createBackup(db, target),
+      throwsA(isA<BackupException>()),
+    );
     expect(target.readAsStringSync(), 'keep me');
     await db.close();
   });
 
-  test('corrupt backup is rejected and the live database is untouched', () async {
+  test('backup preserves a pre-existing partial file', () async {
+    final db = await openAppDatabase(directory: dir);
+    final destination = File('${dir.path}/preserved.sqlite');
+    final partial = File('${destination.path}.partial')
+      ..writeAsStringSync('preserve this interrupted backup');
+
+    try {
+      await expectLater(
+        createBackup(db, destination),
+        throwsA(isA<BackupException>()),
+      );
+
+      expect(
+        partial.readAsStringSync(),
+        'preserve this interrupted backup',
+      );
+      expect(destination.existsSync(), isFalse);
+    } finally {
+      await db.close();
+    }
+  });
+  test(
+    'corrupt backup is rejected and the live database is untouched',
+    () async {
+      final db = await openAppDatabase(directory: dir);
+      await _seed(db);
+      await db.close();
+      final live = File('${dir.path}/flexicore_local.sqlite');
+      final before = live.readAsBytesSync();
+
+      final bad = File('${dir.path}/bad.sqlite')
+        ..writeAsBytesSync(List<int>.generate(4096, (i) => i % 251));
+      await expectLater(
+        restoreBackup(backup: bad, directory: dir),
+        throwsA(isA<BackupException>()),
+      );
+
+      expect(live.readAsBytesSync(), before);
+      expect(File('${live.path}.restoring').existsSync(), isFalse);
+      final names = dir.listSync().map((e) => e.path).join('\n');
+      expect(names.contains('pre-restore'), isFalse);
+    },
+  );
+
+  test('restore preserves a pre-existing safety-copy file', () async {
     final db = await openAppDatabase(directory: dir);
     await _seed(db);
+    final backup = await createBackup(
+      db,
+      File('${dir.path}/restore-source.sqlite'),
+    );
+    await _addSecondProduct(db);
     await db.close();
+
+    final live = File('${dir.path}/flexicore_local.sqlite');
+    final existing = File('${live.path}.pre-restore-20261022-120000')
+      ..writeAsStringSync('preserve this existing safety copy');
+    final existingWal = File('${live.path}.pre-restore-20261022-120000-wal')
+      ..writeAsStringSync('preserve this existing WAL artifact');
+
+    final result = await restoreBackup(
+      backup: backup,
+      directory: dir,
+      clock: () => DateTime(2026, 10, 22, 12),
+    );
+
+    expect(existing.readAsStringSync(), 'preserve this existing safety copy');
+    expect(
+      existingWal.readAsStringSync(),
+      'preserve this existing WAL artifact',
+    );
+    expect(result.safetyCopy, isNotNull);
+    expect(
+      p.normalize(result.safetyCopy!.path),
+      p.normalize('${live.path}.pre-restore-20261022-120000-1'),
+    );
+    expect(result.safetyCopy!.path, isNot(existing.path));
+    expect(result.safetyCopy!.existsSync(), isTrue);
+    expect(_count(result.safetyCopy!.path, 'products'), 2);
+  });
+
+  test('restore preserves a pre-existing staging file', () async {
+    final db = await openAppDatabase(directory: dir);
+    await _seed(db);
+    final backup = await createBackup(
+      db,
+      File('${dir.path}/restore-source.sqlite'),
+    );
+    await db.close();
+
     final live = File('${dir.path}/flexicore_local.sqlite');
     final before = live.readAsBytesSync();
+    final staged = File('${live.path}.restoring')
+      ..writeAsStringSync('preserve this staging file');
 
-    final bad = File('${dir.path}/bad.sqlite')
-      ..writeAsBytesSync(List<int>.generate(4096, (i) => i % 251));
     await expectLater(
-      restoreBackup(backup: bad, directory: dir),
+      restoreBackup(backup: backup, directory: dir),
       throwsA(isA<BackupException>()),
     );
 
+    expect(staged.readAsStringSync(), 'preserve this staging file');
     expect(live.readAsBytesSync(), before);
-    expect(File('${live.path}.restoring').existsSync(), isFalse);
-    final names = dir.listSync().map((e) => e.path).join('\n');
-    expect(names.contains('pre-restore'), isFalse);
   });
 
   test('a backup from a newer schema is rejected', () {
@@ -171,20 +262,25 @@ void main() {
     expect(() => validateBackupFile(f), throwsA(isA<BackupException>()));
   });
 
-  test('restoring an older v1 backup upgrades it to the current schema', () async {
-    final db0 = await openAppDatabase(directory: dir);
-    await _seed(db0);
-    await db0.close();
+  test(
+    'restoring an older v1 backup upgrades it to the current schema',
+    () async {
+      final db0 = await openAppDatabase(directory: dir);
+      await _seed(db0);
+      await db0.close();
 
-    final v1 = File('${dir.path}/old-v1.sqlite');
-    final raw = sql.sqlite3.open(v1.path);
-    raw.execute('''
+      final v1 = File('${dir.path}/old-v1.sqlite');
+      final raw = sql.sqlite3.open(v1.path);
+      raw.execute(
+        '''
       CREATE TABLE units (
         id TEXT NOT NULL, company_id TEXT NOT NULL, code TEXT NOT NULL,
         name TEXT NOT NULL CHECK (LENGTH(name) BETWEEN 1 AND 160),
         version INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL,
-        origin_device_id TEXT NULL, deleted_at INTEGER NULL, PRIMARY KEY (id))''');
-    raw.execute('''
+        origin_device_id TEXT NULL, deleted_at INTEGER NULL, PRIMARY KEY (id))''',
+      );
+      raw.execute(
+        '''
       CREATE TABLE products (
         id TEXT NOT NULL, company_id TEXT NOT NULL, sku TEXT NOT NULL,
         barcode TEXT NULL,
@@ -193,21 +289,23 @@ void main() {
         sale_price_e4 INTEGER NOT NULL DEFAULT 0,
         cost_price_e4 INTEGER NOT NULL DEFAULT 0,
         version INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL,
-        origin_device_id TEXT NULL, deleted_at INTEGER NULL, PRIMARY KEY (id))''');
-    raw.execute(
-      "INSERT INTO units VALUES ('u-old','local-company','box','Box',1,"
-      '1700000000,NULL,NULL)',
-    );
-    raw.execute('PRAGMA user_version = 1');
-    raw.close();
+        origin_device_id TEXT NULL, deleted_at INTEGER NULL, PRIMARY KEY (id))''',
+      );
+      raw.execute(
+        "INSERT INTO units VALUES ('u-old','local-company','box','Box',1,"
+        '1700000000,NULL,NULL)',
+      );
+      raw.execute('PRAGMA user_version = 1');
+      raw.close();
 
-    final result = await restoreBackup(backup: v1, directory: dir);
-    expect(result.schemaVersion, 2);
+      final result = await restoreBackup(backup: v1, directory: dir);
+      expect(result.schemaVersion, 3);
 
-    final db = await openAppDatabase(directory: dir);
-    final units = await db.select(db.units).get();
-    expect(units.map((u) => u.id).toList(), ['u-old']);
-    expect(await db.select(db.businessProfiles).get(), isEmpty);
-    await db.close();
-  });
+      final db = await openAppDatabase(directory: dir);
+      final units = await db.select(db.units).get();
+      expect(units.map((u) => u.id).toList(), ['u-old']);
+      expect(await db.select(db.businessProfiles).get(), isEmpty);
+      await db.close();
+    },
+  );
 }
