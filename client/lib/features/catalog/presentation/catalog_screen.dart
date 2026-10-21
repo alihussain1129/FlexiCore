@@ -1,56 +1,497 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/app_theme.dart';
 import '../../../core/money.dart';
 import '../domain/catalog_domain.dart';
 import 'catalog_controller.dart';
 
+double _hPad(BuildContext context) =>
+    MediaQuery.sizeOf(context).width < 600 ? 16 : 28;
+
 /// Local catalog: units and products, read from and written to the local
 /// database. Never calls the API.
 class CatalogScreen extends StatelessWidget {
-  /// Extra app-bar buttons supplied by the host app (for example a menu).
-  final List<Widget> actions;
-
   const CatalogScreen({
     super.key,
     required this.controller,
     this.actions = const [],
+    this.businessName,
   });
 
   final CatalogController controller;
+
+  /// Extra header buttons supplied by the host app (for example a menu).
+  final List<Widget> actions;
+
+  /// Shown as the page title.
+  final String? businessName;
 
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Catalog (local)'),
-          actions: actions,
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Products'),
-              Tab(text: 'Units'),
-            ],
-          ),
-        ),
+        backgroundColor: AppColors.paper,
         body: ListenableBuilder(
           listenable: controller,
           builder: (context, _) {
-            if (controller.loadError != null) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text(controller.loadError!),
-                ),
-              );
-            }
-            return TabBarView(
+            return Column(
               children: [
-                _ProductsTab(controller: controller),
-                _UnitsTab(controller: controller),
+                _Header(
+                  productCount: controller.products.length,
+                  unitCount: controller.units.length,
+                  businessName: businessName,
+                  actions: actions,
+                ),
+                Expanded(
+                  child: controller.loadError != null
+                      ? _EmptyState(
+                          icon: Icons.error_outline,
+                          title: 'Something went wrong',
+                          message: controller.loadError!,
+                        )
+                      : TabBarView(
+                          children: [
+                            _ProductsTab(controller: controller),
+                            _UnitsTab(controller: controller),
+                          ],
+                        ),
+                ),
               ],
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+// ----------------------------------------------------------------- header
+
+class _Header extends StatelessWidget {
+  const _Header({
+    required this.productCount,
+    required this.unitCount,
+    required this.businessName,
+    required this.actions,
+  });
+
+  final int productCount;
+  final int unitCount;
+  final String? businessName;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = (businessName == null || businessName!.trim().isEmpty)
+        ? 'My business'
+        : businessName!.trim();
+    final h = _hPad(context);
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppColors.tealDark, AppColors.teal],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x4016302F),
+            blurRadius: 24,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1100),
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(h, 14, h, 14),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 46,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.16),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Icon(
+                          Icons.storefront_outlined,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 22,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const Text(
+                              'Your products and units',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ...actions,
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _StatTile(
+                          icon: Icons.inventory_2_outlined,
+                          label: 'Products',
+                          value: productCount,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _StatTile(
+                          icon: Icons.straighten,
+                          label: 'Units',
+                          value: unitCount,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: TabBar(
+                      dividerColor: Colors.transparent,
+                      indicatorSize: TabBarIndicatorSize.tab,
+                      indicator: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(11),
+                      ),
+                      labelColor: AppColors.teal,
+                      unselectedLabelColor: Colors.white,
+                      labelStyle: const TextStyle(fontWeight: FontWeight.w700),
+                      splashBorderRadius: BorderRadius.circular(11),
+                      tabs: const [
+                        Tab(
+                          height: 42,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.inventory_2_outlined, size: 18),
+                              SizedBox(width: 8),
+                              Text('Products'),
+                            ],
+                          ),
+                        ),
+                        Tab(
+                          height: 42,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.straighten, size: 18),
+                              SizedBox(width: 8),
+                              Text('Units'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StatTile extends StatelessWidget {
+  const _StatTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final int value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.white70),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 250),
+                  transitionBuilder: (child, anim) =>
+                      FadeTransition(opacity: anim, child: child),
+                  child: Text(
+                    '$value',
+                    key: ValueKey(value),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Text(
+                  label,
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------- shared
+
+class _Page extends StatelessWidget {
+  const _Page({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final h = _hPad(context);
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1100),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(h, 18, h, 0),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+class _Entrance extends StatelessWidget {
+  const _Entrance({required this.index, required this.child});
+
+  final int index;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final step = index > 8 ? 8 : index;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: Duration(milliseconds: 280 + step * 40),
+      curve: Curves.easeOutCubic,
+      builder: (context, t, child) => Opacity(
+        opacity: t,
+        child: Transform.translate(offset: Offset(0, 14 * (1 - t)), child: child),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _HoverCard extends StatefulWidget {
+  const _HoverCard({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_HoverCard> createState() => _HoverCardState();
+}
+
+class _HoverCardState extends State<_HoverCard> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        transform: Matrix4.translationValues(0, _hover ? -2 : 0, 0),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: _hover
+                ? AppColors.teal.withValues(alpha: 0.35)
+                : AppColors.line,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.ink.withValues(alpha: _hover ? 0.12 : 0.05),
+              blurRadius: _hover ? 22 : 10,
+              offset: Offset(0, _hover ? 10 : 4),
+            ),
+          ],
+        ),
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: _Entrance(
+          index: 0,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 76,
+                height: 76,
+                decoration: const BoxDecoration(
+                  color: AppColors.tealSoft,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, size: 34, color: AppColors.teal),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 6),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 340),
+                child: Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: AppColors.muted, height: 1.4),
+                ),
+              ),
+              if (actionLabel != null && onAction != null) ...[
+                const SizedBox(height: 18),
+                FilledButton.icon(
+                  onPressed: onAction,
+                  icon: const Icon(Icons.add),
+                  label: Text(actionLabel!),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RowActions extends StatelessWidget {
+  const _RowActions({required this.onEdit, required this.onDelete});
+
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          tooltip: 'Edit',
+          onPressed: onEdit,
+          icon: const Icon(Icons.edit_outlined),
+          color: AppColors.teal,
+        ),
+        IconButton(
+          tooltip: 'Delete',
+          onPressed: onDelete,
+          icon: const Icon(Icons.delete_outline),
+          color: AppColors.danger,
+        ),
+      ],
+    );
+  }
+}
+
+class _Avatar extends StatelessWidget {
+  const _Avatar({required this.text, required this.bg, required this.fg});
+
+  final String text;
+  final Color bg;
+  final Color fg;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 46,
+      height: 46,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(6),
+        child: FittedBox(
+          child: Text(
+            text,
+            style: TextStyle(
+              color: fg,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ),
       ),
     );
@@ -69,6 +510,7 @@ Future<bool> _confirm(BuildContext context, String message) async {
           child: const Text('Cancel'),
         ),
         FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
           onPressed: () => Navigator.pop(ctx, true),
           child: const Text('Delete'),
         ),
@@ -84,6 +526,83 @@ void _toast(BuildContext context, String message) {
     ..showSnackBar(SnackBar(content: Text(message)));
 }
 
+class _DialogTitle extends StatelessWidget {
+  const _DialogTitle({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: AppColors.tealSoft,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: AppColors.teal, size: 22),
+        ),
+        const SizedBox(width: 12),
+        Flexible(child: Text(text)),
+      ],
+    );
+  }
+}
+
+class _ErrorText extends StatelessWidget {
+  const _ErrorText(this.error);
+
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+      child: error == null
+          ? const SizedBox(width: double.infinity)
+          : Padding(
+              padding: const EdgeInsets.only(top: 14),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.danger.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.error_outline,
+                      size: 18,
+                      color: AppColors.danger,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        error!,
+                        style: const TextStyle(color: AppColors.danger),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+    );
+  }
+}
+
+Widget _saveLabel(bool saving) => saving
+    ? const SizedBox(
+        width: 18,
+        height: 18,
+        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+      )
+    : const Text('Save');
+
 // ------------------------------------------------------------------ units
 
 class _UnitsTab extends StatelessWidget {
@@ -91,72 +610,113 @@ class _UnitsTab extends StatelessWidget {
 
   final CatalogController controller;
 
+  void _add(BuildContext context) => showDialog<void>(
+    context: context,
+    builder: (_) => _UnitDialog(controller: controller),
+  );
+
   @override
   Widget build(BuildContext context) {
     final units = controller.units;
-    return Column(
-      children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
+    return _Page(
+      child: Column(
+        children: [
+          Align(
+            alignment: Alignment.centerRight,
             child: FilledButton.icon(
-              onPressed: () => showDialog<void>(
-                context: context,
-                builder: (_) => _UnitDialog(controller: controller),
-              ),
+              onPressed: () => _add(context),
               icon: const Icon(Icons.add),
               label: const Text('Add unit'),
             ),
           ),
-        ),
-        Expanded(
-          child: units.isEmpty
-              ? const Center(child: Text('No units yet.'))
-              : ListView.separated(
-                  itemCount: units.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (context, i) {
-                    final unit = units[i];
-                    return ListTile(
-                      title: Text(unit.code),
-                      subtitle: Text(unit.name),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            tooltip: 'Edit',
-                            icon: const Icon(Icons.edit_outlined),
-                            onPressed: () => showDialog<void>(
-                              context: context,
-                              builder: (_) => _UnitDialog(
-                                controller: controller,
-                                unit: unit,
+          const SizedBox(height: 14),
+          Expanded(
+            child: units.isEmpty
+                ? _EmptyState(
+                    icon: Icons.straighten,
+                    title: 'No units yet',
+                    message:
+                        'Units describe how you sell things, like pieces, '
+                        'boxes or kilograms. Add one to use it on products.',
+                    actionLabel: 'Add unit',
+                    onAction: () => _add(context),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.only(bottom: 32),
+                    itemCount: units.length,
+                    itemBuilder: (context, i) {
+                      final unit = units[i];
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _Entrance(
+                          index: i,
+                          child: _HoverCard(
+                            child: Padding(
+                              padding: const EdgeInsets.all(14),
+                              child: Row(
+                                children: [
+                                  _Avatar(
+                                    text: unit.code,
+                                    bg: AppColors.claySoft,
+                                    fg: AppColors.clay,
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          unit.name,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'Code: ${unit.code}',
+                                          style: const TextStyle(
+                                            color: AppColors.muted,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  _RowActions(
+                                    onEdit: () => showDialog<void>(
+                                      context: context,
+                                      builder: (_) => _UnitDialog(
+                                        controller: controller,
+                                        unit: unit,
+                                      ),
+                                    ),
+                                    onDelete: () async {
+                                      final ok = await _confirm(
+                                        context,
+                                        'Delete unit ${unit.code}?',
+                                      );
+                                      if (!ok) return;
+                                      final error = await controller
+                                          .removeUnit(unit);
+                                      if (error != null && context.mounted) {
+                                        _toast(context, error);
+                                      }
+                                    },
+                                  ),
+                                ],
                               ),
                             ),
                           ),
-                          IconButton(
-                            tooltip: 'Delete',
-                            icon: const Icon(Icons.delete_outline),
-                            onPressed: () async {
-                              final ok = await _confirm(
-                                context,
-                                'Delete unit ${unit.code}?',
-                              );
-                              if (!ok) return;
-                              final error = await controller.removeUnit(unit);
-                              if (error != null && context.mounted) {
-                                _toast(context, error);
-                              }
-                            },
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-        ),
-      ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -208,27 +768,38 @@ class _UnitDialogState extends State<_UnitDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(widget.unit == null ? 'New unit' : 'Edit unit'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _code,
-            decoration: const InputDecoration(labelText: 'Code (e.g. KG)'),
-          ),
-          TextField(
-            controller: _name,
-            decoration: const InputDecoration(labelText: 'Name'),
-          ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+      title: _DialogTitle(
+        icon: Icons.straighten,
+        text: widget.unit == null ? 'New unit' : 'Edit unit',
+      ),
+      content: SizedBox(
+        width: 400,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 4),
+              TextField(
+                controller: _code,
+                autofocus: true,
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(
+                  labelText: 'Code',
+                  helperText: 'A short label, for example KG or PCS',
+                ),
               ),
-            ),
-        ],
+              const SizedBox(height: 14),
+              TextField(
+                controller: _name,
+                decoration: const InputDecoration(
+                  labelText: 'Name',
+                  helperText: 'The full name, for example Kilogram',
+                ),
+              ),
+              _ErrorText(_error),
+            ],
+          ),
+        ),
       ),
       actions: [
         TextButton(
@@ -237,7 +808,7 @@ class _UnitDialogState extends State<_UnitDialog> {
         ),
         FilledButton(
           onPressed: _saving ? null : _save,
-          child: const Text('Save'),
+          child: _saveLabel(_saving),
         ),
       ],
     );
@@ -251,80 +822,89 @@ class _ProductsTab extends StatelessWidget {
 
   final CatalogController controller;
 
+  void _add(BuildContext context) => showDialog<void>(
+    context: context,
+    builder: (_) => _ProductDialog(controller: controller),
+  );
+
   @override
   Widget build(BuildContext context) {
     final products = controller.products;
     final unitCodes = {for (final u in controller.units) u.id: u.code};
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search),
-                    hintText: 'Search name, SKU or barcode',
-                  ),
-                  onChanged: controller.search,
-                ),
-              ),
-              const SizedBox(width: 12),
-              FilledButton.icon(
-                onPressed: () => showDialog<void>(
-                  context: context,
-                  builder: (_) => _ProductDialog(controller: controller),
-                ),
-                icon: const Icon(Icons.add),
-                label: const Text('Add product'),
-              ),
-            ],
+
+    final search = TextField(
+      onChanged: controller.search,
+      decoration: const InputDecoration(
+        prefixIcon: Icon(Icons.search),
+        hintText: 'Search by name, SKU or barcode',
+      ),
+    );
+    final add = FilledButton.icon(
+      onPressed: () => _add(context),
+      icon: const Icon(Icons.add),
+      label: const Text('Add product'),
+    );
+
+    return _Page(
+      child: Column(
+        children: [
+          LayoutBuilder(
+            builder: (context, c) {
+              if (c.maxWidth < 560) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [search, const SizedBox(height: 10), add],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: search),
+                  const SizedBox(width: 12),
+                  add,
+                ],
+              );
+            },
           ),
-        ),
-        Expanded(
-          child: products.isEmpty
-              ? Center(
-                  child: Text(
-                    controller.query.isEmpty
-                        ? 'No products yet.'
-                        : 'No products match "${controller.query}".',
-                  ),
-                )
-              : ListView.separated(
-                  itemCount: products.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (context, i) {
-                    final p = products[i];
-                    final unit = unitCodes[p.unitId];
-                    return ListTile(
-                      title: Text(p.name),
-                      subtitle: Text(
-                        [
-                          'SKU ${p.sku}',
-                          ?unit,
-                          'Sale ${Money.formatE4(p.salePriceE4)}',
-                          'Cost ${Money.formatE4(p.costPriceE4)}',
-                        ].join('  ·  '),
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            tooltip: 'Edit',
-                            icon: const Icon(Icons.edit_outlined),
-                            onPressed: () => showDialog<void>(
+          const SizedBox(height: 14),
+          Expanded(
+            child: products.isEmpty
+                ? (controller.query.isEmpty
+                      ? _EmptyState(
+                          icon: Icons.inventory_2_outlined,
+                          title: 'No products yet',
+                          message:
+                              'Add your first product to start building '
+                              'your catalog.',
+                          actionLabel: 'Add product',
+                          onAction: () => _add(context),
+                        )
+                      : _EmptyState(
+                          icon: Icons.search_off,
+                          title: 'No matches',
+                          message:
+                              'Nothing matches "${controller.query}". Try a '
+                              'different name, SKU or barcode.',
+                        ))
+                : ListView.builder(
+                    padding: const EdgeInsets.only(bottom: 32),
+                    itemCount: products.length,
+                    itemBuilder: (context, i) {
+                      final p = products[i];
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _Entrance(
+                          index: i,
+                          child: _ProductCard(
+                            product: p,
+                            unitCode: unitCodes[p.unitId],
+                            onEdit: () => showDialog<void>(
                               context: context,
                               builder: (_) => _ProductDialog(
                                 controller: controller,
                                 product: p,
                               ),
                             ),
-                          ),
-                          IconButton(
-                            tooltip: 'Delete',
-                            icon: const Icon(Icons.delete_outline),
-                            onPressed: () async {
+                            onDelete: () async {
                               final ok = await _confirm(
                                 context,
                                 'Delete product ${p.name}?',
@@ -336,13 +916,219 @@ class _ProductsTab extends StatelessWidget {
                               }
                             },
                           ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProductCard extends StatelessWidget {
+  const _ProductCard({
+    required this.product,
+    required this.unitCode,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final CatalogProduct product;
+  final String? unitCode;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = product.name;
+    final letter = name.isEmpty
+        ? '?'
+        : String.fromCharCode(name.runes.first).toUpperCase();
+    final barcode = product.barcode;
+    final sub = StringBuffer('SKU ${product.sku}');
+    if (barcode != null && barcode.isNotEmpty) {
+      sub.write('   Barcode $barcode');
+    }
+    final sale = Money.formatE4(product.salePriceE4);
+    final cost = Money.formatE4(product.costPriceE4);
+
+    final title = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          name,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          sub.toString(),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: AppColors.muted),
         ),
       ],
+    );
+
+    return _HoverCard(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: LayoutBuilder(
+          builder: (context, c) {
+            final avatar = _Avatar(
+              text: letter,
+              bg: AppColors.tealSoft,
+              fg: AppColors.teal,
+            );
+            final actions = _RowActions(onEdit: onEdit, onDelete: onDelete);
+            if (c.maxWidth >= 640) {
+              return Row(
+                children: [
+                  avatar,
+                  const SizedBox(width: 14),
+                  Expanded(flex: 5, child: title),
+                  if (unitCode != null) ...[
+                    const SizedBox(width: 12),
+                    _UnitChip(unitCode!),
+                  ],
+                  const SizedBox(width: 12),
+                  _Price(label: 'Sale', value: sale, strong: true),
+                  _Price(label: 'Cost', value: cost, strong: false),
+                  const SizedBox(width: 4),
+                  actions,
+                ],
+              );
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    avatar,
+                    const SizedBox(width: 12),
+                    Expanded(child: title),
+                    actions,
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (unitCode != null) _UnitChip(unitCode!),
+                    _MiniPrice(label: 'Sale', value: sale, strong: true),
+                    _MiniPrice(label: 'Cost', value: cost, strong: false),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _UnitChip extends StatelessWidget {
+  const _UnitChip(this.code);
+
+  final String code;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.tealSoft,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        code,
+        style: const TextStyle(
+          color: AppColors.teal,
+          fontWeight: FontWeight.w700,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
+}
+
+class _Price extends StatelessWidget {
+  const _Price({
+    required this.label,
+    required this.value,
+    required this.strong,
+  });
+
+  final String label;
+  final String value;
+  final bool strong;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 112,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(color: AppColors.muted, fontSize: 12),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: strong ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniPrice extends StatelessWidget {
+  const _MiniPrice({
+    required this.label,
+    required this.value,
+    required this.strong,
+  });
+
+  final String label;
+  final String value;
+  final bool strong;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppColors.paper,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text.rich(
+        TextSpan(
+          children: [
+            TextSpan(
+              text: '$label  ',
+              style: const TextStyle(color: AppColors.muted, fontSize: 12),
+            ),
+            TextSpan(
+              text: value,
+              style: TextStyle(
+                fontWeight: strong ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -426,28 +1212,53 @@ class _ProductDialogState extends State<_ProductDialog> {
   @override
   Widget build(BuildContext context) {
     final units = widget.controller.units;
+    const gap = SizedBox(height: 14);
     return AlertDialog(
-      title: Text(widget.product == null ? 'New product' : 'Edit product'),
+      title: _DialogTitle(
+        icon: Icons.inventory_2_outlined,
+        text: widget.product == null ? 'New product' : 'Edit product',
+      ),
       content: SizedBox(
-        width: 420,
+        width: 460,
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
-                controller: _sku,
-                decoration: const InputDecoration(labelText: 'SKU'),
-              ),
+              const SizedBox(height: 4),
               TextField(
                 controller: _name,
+                autofocus: true,
+                textInputAction: TextInputAction.next,
                 decoration: const InputDecoration(labelText: 'Name'),
               ),
-              TextField(
-                controller: _barcode,
-                decoration: const InputDecoration(
-                  labelText: 'Barcode (optional)',
-                ),
+              gap,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _sku,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'SKU',
+                        helperText: 'Your own product code',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      controller: _barcode,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Barcode',
+                        helperText: 'Optional',
+                      ),
+                    ),
+                  ),
+                ],
               ),
+              gap,
               DropdownButtonFormField<String?>(
                 initialValue: _unitId,
                 decoration: const InputDecoration(labelText: 'Unit'),
@@ -464,30 +1275,38 @@ class _ProductDialogState extends State<_ProductDialog> {
                 ],
                 onChanged: (v) => setState(() => _unitId = v),
               ),
-              TextField(
-                controller: _sale,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(labelText: 'Sale price'),
-              ),
-              TextField(
-                controller: _cost,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(labelText: 'Cost price'),
-              ),
-              if (_error != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Text(
-                    _error!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
+              gap,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _sale,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Sale price',
+                        helperText: 'What customers pay',
+                      ),
                     ),
                   ),
-                ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      controller: _cost,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Cost price',
+                        helperText: 'What you pay',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              _ErrorText(_error),
             ],
           ),
         ),
@@ -499,7 +1318,7 @@ class _ProductDialogState extends State<_ProductDialog> {
         ),
         FilledButton(
           onPressed: _saving ? null : _save,
-          child: const Text('Save'),
+          child: _saveLabel(_saving),
         ),
       ],
     );

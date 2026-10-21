@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../core/app_theme.dart';
 import '../../data/local/app_database.dart';
 import '../../data/local/database_backup.dart';
 import '../../data/local/database_integrity.dart';
@@ -148,7 +149,12 @@ class _LocalDataMenuState extends State<LocalDataMenu> {
       ),
     );
 
-    final result = await widget.onRestore(File(picked.path));
+    ({bool ok, String message}) result;
+    try {
+      result = await widget.onRestore(File(picked.path));
+    } catch (e) {
+      result = (ok: false, message: 'Restore failed: $e');
+    }
     navigator.pop();
     messenger.showSnackBar(
       SnackBar(
@@ -164,7 +170,18 @@ class _LocalDataMenuState extends State<LocalDataMenu> {
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(report.isOk ? 'Data check passed' : 'Problems found'),
+        title: Row(
+          children: [
+            Icon(
+              report.isOk ? Icons.verified_outlined : Icons.warning_amber,
+              color: report.isOk ? AppColors.teal : AppColors.clay,
+            ),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Text(report.isOk ? 'Data check passed' : 'Problems found'),
+            ),
+          ],
+        ),
         content: SingleChildScrollView(
           child: SelectableText(
             report.isOk
@@ -182,43 +199,103 @@ class _LocalDataMenuState extends State<LocalDataMenu> {
     );
   }
 
+  PopupMenuEntry<_Action> _item(
+    _Action value,
+    IconData icon,
+    String title,
+    String subtitle,
+  ) {
+    return PopupMenuItem<_Action>(
+      value: value,
+      child: SizedBox(
+        width: 270,
+        child: ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppColors.tealSoft,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: AppColors.teal, size: 22),
+          ),
+          title: Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          subtitle: Text(
+            subtitle,
+            style: const TextStyle(color: AppColors.muted, fontSize: 12),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final wide = MediaQuery.sizeOf(context).width >= 560;
     return PopupMenuButton<_Action>(
       tooltip: 'Business and data',
       enabled: !_busy,
       onSelected: _run,
-      itemBuilder: (_) => const [
-        PopupMenuItem(
-          value: _Action.profile,
-          child: ListTile(
-            leading: Icon(Icons.storefront_outlined),
-            title: Text('Business profile'),
-          ),
+      offset: const Offset(0, 48),
+      itemBuilder: (_) => [
+        _item(
+          _Action.profile,
+          Icons.storefront_outlined,
+          'Business profile',
+          'View or change your business details',
         ),
-        PopupMenuDivider(),
-        PopupMenuItem(
-          value: _Action.backup,
-          child: ListTile(
-            leading: Icon(Icons.save_alt),
-            title: Text('Back up now'),
-          ),
+        const PopupMenuDivider(),
+        _item(
+          _Action.backup,
+          Icons.save_alt,
+          'Back up now',
+          'Save a safe copy of all your data',
         ),
-        PopupMenuItem(
-          value: _Action.restore,
-          child: ListTile(
-            leading: Icon(Icons.settings_backup_restore),
-            title: Text('Restore from backup...'),
-          ),
+        _item(
+          _Action.restore,
+          Icons.settings_backup_restore,
+          'Restore from backup',
+          'Replace current data with a saved copy',
         ),
-        PopupMenuItem(
-          value: _Action.check,
-          child: ListTile(
-            leading: Icon(Icons.fact_check_outlined),
-            title: Text('Check data integrity'),
-          ),
+        _item(
+          _Action.check,
+          Icons.fact_check_outlined,
+          'Check data integrity',
+          'Make sure your data is healthy',
         ),
       ],
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 150),
+        opacity: _busy ? 0.5 : 1,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.16),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.tune, color: Colors.white, size: 20),
+              if (wide) ...[
+                const SizedBox(width: 8),
+                const Text(
+                  'Business & data',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

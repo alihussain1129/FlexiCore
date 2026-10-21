@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'core/app_theme.dart';
 import 'data/local/app_database.dart';
 import 'data/local/database_backup.dart';
 import 'data/local/database_opener.dart';
@@ -79,7 +80,9 @@ class _LocalAppState extends State<_LocalApp> {
       return (ok: false, message: 'Restore failed: $e');
     } finally {
       if (mounted) {
-        setState(() => _boot = _start());
+        setState(() {
+          _boot = _start();
+        });
       }
     }
   }
@@ -93,8 +96,9 @@ class _LocalAppState extends State<_LocalApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'FlexiCore (local)',
-      theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
+      title: 'FlexiCore',
+      debugShowCheckedModeBanner: false,
+      theme: buildAppTheme(),
       home: FutureBuilder<_Boot>(
         future: _boot,
         builder: (context, snapshot) {
@@ -103,21 +107,11 @@ class _LocalAppState extends State<_LocalApp> {
             final text = e is LocalDatabaseException
                 ? '${e.message}\n\n${e.path ?? ''}'
                 : 'Could not start: $e';
-            return Scaffold(
-              appBar: AppBar(title: const Text('FlexiCore')),
-              body: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: SelectableText(text),
-                ),
-              ),
-            );
+            return _StartupError(text: text);
           }
           if (snapshot.connectionState != ConnectionState.done ||
               !snapshot.hasData) {
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            );
+            return const _Splash();
           }
           final boot = snapshot.data!;
           return ListenableBuilder(
@@ -126,6 +120,7 @@ class _LocalAppState extends State<_LocalApp> {
                 ? ProfileSetupScreen(controller: boot.profile)
                 : CatalogScreen(
                     controller: boot.catalog,
+                    businessName: boot.profile.profile?.businessName,
                     actions: [
                       LocalDataMenu(
                         db: boot.db,
@@ -136,6 +131,110 @@ class _LocalAppState extends State<_LocalApp> {
                   ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _Splash extends StatelessWidget {
+  const _Splash();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 76,
+              height: 76,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [AppColors.tealDark, AppColors.teal],
+                ),
+                borderRadius: BorderRadius.circular(22),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.ink.withValues(alpha: 0.25),
+                    blurRadius: 24,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.storefront_outlined,
+                color: Colors.white,
+                size: 36,
+              ),
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              'FlexiCore',
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 16),
+            const SizedBox(
+              width: 26,
+              height: 26,
+              child: CircularProgressIndicator(strokeWidth: 3),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StartupError extends StatelessWidget {
+  const _StartupError({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.ink.withValues(alpha: 0.10),
+                    blurRadius: 32,
+                    offset: const Offset(0, 14),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.error_outline,
+                    color: AppColors.danger,
+                    size: 40,
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'FlexiCore could not start',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 8),
+                  SelectableText(text),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
