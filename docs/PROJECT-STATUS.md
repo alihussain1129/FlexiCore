@@ -2,7 +2,7 @@
 
 Last verified: 2026-10-21
 Repository: D:\Projects\flexicore
-Branch at checkpoint: phase-16b-local-profile
+Branch at checkpoint: phase-17a-local-backup
 Last previously committed revision: 946c787
 
 ## Product direction
@@ -135,3 +135,38 @@ Not yet verified / remaining gaps:
 Next recommended milestone: Milestone 2 (local data safety: backup/restore,
 integrity check, separation of profile, app lock and license state), after
 a manual Windows run of this milestone.
+
+## Local backup, restore and integrity check (verified 2026-10-21)
+
+Added (library code only, no UI yet):
+- lib/data/local/database_integrity.dart: PRAGMA integrity_check and
+  foreign_key_check, read-only.
+- lib/data/local/database_backup.dart: createBackup (VACUUM INTO a temp file,
+  validate, rename; refuses to overwrite), validateBackupFile (read-only open,
+  rejects non-FlexiCore, corrupt, and newer-schema files), restoreBackup
+  (stages a verified copy, moves the live database and WAL files aside as
+  .pre-restore-<time>, swaps, reopens with migration, integrity-checks, and
+  puts the old database back on failure). The only files the code deletes are
+  its own temp files.
+- sqlite3 is now a direct dependency (was dev-only) because lib/ reads
+  backup files with it.
+- test/data/local_backup_test.dart: 7 tests (integrity on healthy database,
+  backup validity, backup/restore round trip including profile, no overwrite,
+  corrupt backup rejected with live file byte-identical, newer-schema
+  rejected, restoring an older v1 backup upgrades it).
+
+Verified results:
+- dart run build_runner build: exit 0.
+- flutter analyze: No issues found (exit 0).
+- flutter test: 140 tests passed (exit 0).
+- main.dart, app.dart and main_local.dart: no diff.
+
+Not yet verified / remaining gaps:
+- No Backup/Restore UI. Restore needs the app database closed and the
+  controllers rebuilt afterwards.
+- The rollback path after a successful swap but failed reopen (step 3 of
+  restoreBackup) has no automated test.
+- Not exercised on a real user database, on Android, or with a backup
+  folder picked through the file dialog.
+- Backups are plain, unencrypted .sqlite files.
+- Scheduled or automatic backups are not implemented.
