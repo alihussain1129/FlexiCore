@@ -124,9 +124,8 @@ Verified results:
 Not yet verified / remaining gaps:
 - Windows manual run (2026-10-21): main_local.dart launched, the setup form
   created a profile, and a read-only query of flexicore_local.sqlite showed
-  user_version 2, one business_profiles row, 1 product and 2 units. Not
-  separately confirmed: that a second launch skips setup and opens the
-  catalog. Android has not been run.
+  user_version 2, one business_profiles row, 1 product and 2 units. Second launch confirmed by hand: it skips setup and opens the
+  catalog directly. Android has not been run.
 - No profile view/edit control in the catalog UI yet; the repository
   supports update and is tested, but no screen calls it after setup.
 - Migration test checks catalog tables by direct queries; it does not call
