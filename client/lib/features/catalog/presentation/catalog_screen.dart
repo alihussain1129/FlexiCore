@@ -606,6 +606,7 @@ class _UnitDialogState extends State<_UnitDialog> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     setState(() => _saving = true);
     final unit = widget.unit;
     final error = unit == null
@@ -625,6 +626,7 @@ class _UnitDialogState extends State<_UnitDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       title: _DialogTitle(
         icon: Icons.straighten,
         text: widget.unit == null ? 'New unit' : 'Edit unit',
@@ -648,6 +650,8 @@ class _UnitDialogState extends State<_UnitDialog> {
               const SizedBox(height: 14),
               TextField(
                 controller: _name,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _save(),
                 decoration: const InputDecoration(
                   labelText: 'Name',
                   helperText: 'The full name, for example Kilogram',
@@ -1035,6 +1039,7 @@ class _ProductDialogState extends State<_ProductDialog> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     setState(() => _saving = true);
     final product = widget.product;
     final error = product == null
@@ -1070,7 +1075,29 @@ class _ProductDialogState extends State<_ProductDialog> {
   Widget build(BuildContext context) {
     final units = widget.controller.units;
     const gap = SizedBox(height: 14);
+
+    // Two columns when there is room, stacked on a narrow phone.
+    Widget pair(Widget a, Widget b) => LayoutBuilder(
+      builder: (context, box) {
+        if (box.maxWidth < 340) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [a, gap, b],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: a),
+            const SizedBox(width: 12),
+            Expanded(child: b),
+          ],
+        );
+      },
+    );
+
     return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       title: _DialogTitle(
         icon: Icons.inventory_2_outlined,
         text: widget.product == null ? 'New product' : 'Edit product',
@@ -1089,35 +1116,28 @@ class _ProductDialogState extends State<_ProductDialog> {
                 decoration: const InputDecoration(labelText: 'Name'),
               ),
               gap,
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _sku,
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'SKU',
-                        helperText: 'Your own product code',
-                      ),
-                    ),
+              pair(
+                TextField(
+                  controller: _sku,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'SKU',
+                    helperText: 'Your own product code',
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      controller: _barcode,
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'Barcode',
-                        helperText: 'Optional',
-                      ),
-                    ),
+                ),
+                TextField(
+                  controller: _barcode,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Barcode',
+                    helperText: 'Optional',
                   ),
-                ],
+                ),
               ),
               gap,
               DropdownButtonFormField<String?>(
                 initialValue: _unitId,
+                isExpanded: true,
                 decoration: const InputDecoration(labelText: 'Unit'),
                 items: [
                   const DropdownMenuItem<String?>(
@@ -1127,41 +1147,40 @@ class _ProductDialogState extends State<_ProductDialog> {
                   for (final u in units)
                     DropdownMenuItem<String?>(
                       value: u.id,
-                      child: Text('${u.code} - ${u.name}'),
+                      child: Text(
+                        '${u.code} - ${u.name}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                 ],
                 onChanged: (v) => setState(() => _unitId = v),
               ),
               gap,
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _sale,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Sale price',
-                        helperText: 'What customers pay',
-                      ),
-                    ),
+              pair(
+                TextField(
+                  controller: _sale,
+                  textInputAction: TextInputAction.next,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      controller: _cost,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Cost price',
-                        helperText: 'What you pay',
-                      ),
-                    ),
+                  decoration: const InputDecoration(
+                    labelText: 'Sale price',
+                    helperText: 'What customers pay',
                   ),
-                ],
+                ),
+                TextField(
+                  controller: _cost,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _save(),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: 'Cost price',
+                    helperText: 'What you pay',
+                  ),
+                ),
               ),
               _ErrorText(_error),
             ],

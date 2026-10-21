@@ -79,6 +79,7 @@ class _AppShellState extends State<AppShell> {
     final width = MediaQuery.sizeOf(context).width;
     final useRail = width >= Breakpoints.rail;
     final extended = width >= Breakpoints.wideRail;
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
     final dests = widget.destinations;
 
     final body = KeyedSubtree(
@@ -164,7 +165,7 @@ class _AppShellState extends State<AppShell> {
                 ],
               )
             : body,
-        bottomNavigationBar: useRail
+        bottomNavigationBar: (useRail || keyboardOpen)
             ? null
             : NavigationBarTheme(
                 data: const NavigationBarThemeData(
