@@ -122,8 +122,11 @@ Verified results:
   license/API-backed entry point is unchanged.
 
 Not yet verified / remaining gaps:
-- Manual launch of main_local.dart on Windows (first-run setup, then close
-  and reopen) and on Android has not been done.
+- Windows manual run (2026-10-21): main_local.dart launched, the setup form
+  created a profile, and a read-only query of flexicore_local.sqlite showed
+  user_version 2, one business_profiles row, 1 product and 2 units. Not
+  separately confirmed: that a second launch skips setup and opens the
+  catalog. Android has not been run.
 - No profile view/edit control in the catalog UI yet; the repository
   supports update and is tested, but no screen calls it after setup.
 - Migration test checks catalog tables by direct queries; it does not call
