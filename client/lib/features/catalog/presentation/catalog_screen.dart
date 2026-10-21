@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/app_theme.dart';
 import '../../../core/money.dart';
+import '../../../core/widgets/app_widgets.dart' show PageHeader;
 import '../domain/catalog_domain.dart';
 import 'catalog_controller.dart';
 
@@ -81,203 +82,55 @@ class _Header extends StatelessWidget {
   final String? businessName;
   final List<Widget> actions;
 
+  Tab _tab(IconData icon, String text, int count) => Tab(
+    height: 42,
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 18),
+        const SizedBox(width: 8),
+        Flexible(
+          child: Text(
+            '$text ($count)',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final name = (businessName == null || businessName!.trim().isEmpty)
         ? 'My business'
         : businessName!.trim();
-    final h = _hPad(context);
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [AppColors.tealDark, AppColors.teal],
+    return PageHeader(
+      title: name,
+      subtitle: 'Your products and units',
+      actions: actions,
+      bottom: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(14),
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x4016302F),
-            blurRadius: 24,
-            offset: Offset(0, 8),
+        child: TabBar(
+          dividerColor: Colors.transparent,
+          indicatorSize: TabBarIndicatorSize.tab,
+          indicator: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(11),
           ),
-        ],
-      ),
-      child: SafeArea(
-        bottom: false,
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1100),
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(h, 14, h, 14),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 46,
-                        height: 46,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.16),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: const Icon(
-                          Icons.storefront_outlined,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 22,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const Text(
-                              'Your products and units',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      ...actions,
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _StatTile(
-                          icon: Icons.inventory_2_outlined,
-                          label: 'Products',
-                          value: productCount,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _StatTile(
-                          icon: Icons.straighten,
-                          label: 'Units',
-                          value: unitCount,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: TabBar(
-                      dividerColor: Colors.transparent,
-                      indicatorSize: TabBarIndicatorSize.tab,
-                      indicator: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(11),
-                      ),
-                      labelColor: AppColors.teal,
-                      unselectedLabelColor: Colors.white,
-                      labelStyle: const TextStyle(fontWeight: FontWeight.w700),
-                      splashBorderRadius: BorderRadius.circular(11),
-                      tabs: const [
-                        Tab(
-                          height: 42,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.inventory_2_outlined, size: 18),
-                              SizedBox(width: 8),
-                              Text('Products'),
-                            ],
-                          ),
-                        ),
-                        Tab(
-                          height: 42,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.straighten, size: 18),
-                              SizedBox(width: 8),
-                              Text('Units'),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+          labelColor: AppColors.teal,
+          unselectedLabelColor: Colors.white,
+          labelStyle: const TextStyle(fontWeight: FontWeight.w700),
+          splashBorderRadius: BorderRadius.circular(11),
+          tabs: [
+            _tab(Icons.inventory_2_outlined, 'Products', productCount),
+            _tab(Icons.straighten, 'Units', unitCount),
+          ],
         ),
-      ),
-    );
-  }
-}
-
-class _StatTile extends StatelessWidget {
-  const _StatTile({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  final IconData icon;
-  final String label;
-  final int value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: Colors.white70),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 250),
-                  transitionBuilder: (child, anim) =>
-                      FadeTransition(opacity: anim, child: child),
-                  child: Text(
-                    '$value',
-                    key: ValueKey(value),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                Text(
-                  label,
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -297,10 +150,7 @@ class _Page extends StatelessWidget {
       alignment: Alignment.topCenter,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 1100),
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(h, 18, h, 0),
-          child: child,
-        ),
+        child: Padding(padding: EdgeInsets.fromLTRB(h, 18, h, 0), child: child),
       ),
     );
   }
@@ -321,7 +171,10 @@ class _Entrance extends StatelessWidget {
       curve: Curves.easeOutCubic,
       builder: (context, t, child) => Opacity(
         opacity: t,
-        child: Transform.translate(offset: Offset(0, 14 * (1 - t)), child: child),
+        child: Transform.translate(
+          offset: Offset(0, 14 * (1 - t)),
+          child: child,
+        ),
       ),
       child: child,
     );
@@ -409,7 +262,10 @@ class _EmptyState extends StatelessWidget {
               Text(
                 title,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const SizedBox(height: 6),
               ConstrainedBox(
@@ -699,8 +555,9 @@ class _UnitsTab extends StatelessWidget {
                                         'Delete unit ${unit.code}?',
                                       );
                                       if (!ok) return;
-                                      final error = await controller
-                                          .removeUnit(unit);
+                                      final error = await controller.removeUnit(
+                                        unit,
+                                      );
                                       if (error != null && context.mounted) {
                                         _toast(context, error);
                                       }

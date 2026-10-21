@@ -40,6 +40,7 @@ class PageHeader extends StatelessWidget {
     this.icon = Icons.storefront_outlined,
     this.actions = const [],
     this.stats = const [],
+    this.bottom,
   });
 
   final String title;
@@ -47,6 +48,7 @@ class PageHeader extends StatelessWidget {
   final IconData icon;
   final List<Widget> actions;
   final List<HeaderStat> stats;
+  final Widget? bottom;
 
   @override
   Widget build(BuildContext context) {
@@ -124,6 +126,7 @@ class PageHeader extends StatelessWidget {
                       ],
                     ),
                   ],
+                  if (bottom != null) ...[const SizedBox(height: 14), bottom!],
                 ],
               ),
             ),
@@ -284,57 +287,65 @@ class StatCard extends StatelessWidget {
       ),
       child: InkWell(
         onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: accentSoft,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(icon, color: accent),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      value,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
+        child: LayoutBuilder(
+          builder: (context, box) {
+            // Very narrow cards drop the icon and chevron instead of overflowing.
+            final narrow = box.maxWidth < 200;
+            return Padding(
+              padding: EdgeInsets.all(narrow ? 10 : 16),
+              child: Row(
+                children: [
+                  if (!narrow) ...[
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: accentSoft,
+                        borderRadius: BorderRadius.circular(14),
                       ),
+                      child: Icon(icon, color: accent),
                     ),
-                    Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: AppColors.muted),
-                    ),
-                    if (caption != null)
-                      Text(
-                        caption!,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppColors.muted,
-                          fontSize: 12,
-                        ),
-                      ),
+                    const SizedBox(width: 12),
                   ],
-                ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          value,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: AppColors.muted),
+                        ),
+                        if (caption != null)
+                          Text(
+                            caption!,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.muted,
+                              fontSize: 12,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  if (onTap != null && !narrow)
+                    const Icon(Icons.chevron_right, color: AppColors.muted),
+                ],
               ),
-              if (onTap != null)
-                const Icon(Icons.chevron_right, color: AppColors.muted),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
