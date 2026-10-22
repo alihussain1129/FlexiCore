@@ -1,0 +1,44 @@
+<UserControl x:Class="FlexiCore.ActivationEngine.Views.StatusBanner"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <StackPanel>
+    <ProgressBar IsIndeterminate="True" Height="3" Margin="0,0,0,12" BorderThickness="0"
+                 Background="Transparent" Foreground="{StaticResource AccentBrush}"
+                 Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"/>
+    <Border CornerRadius="8" Padding="14,12" Margin="0,0,0,16"
+            Visibility="{Binding HasStatus, Converter={StaticResource BoolToVis}}">
+      <Border.Style>
+        <Style TargetType="Border">
+          <Setter Property="Background" Value="{StaticResource InfoSoftBrush}"/>
+          <Style.Triggers>
+            <DataTrigger Binding="{Binding StatusKindName}" Value="Success">
+              <Setter Property="Background" Value="{StaticResource SuccessSoftBrush}"/>
+            </DataTrigger>
+            <DataTrigger Binding="{Binding StatusKindName}" Value="Error">
+              <Setter Property="Background" Value="{StaticResource DangerSoftBrush}"/>
+            </DataTrigger>
+          </Style.Triggers>
+        </Style>
+      </Border.Style>
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <TextBlock FontWeight="SemiBold" FontSize="13" Margin="0,0,10,0" Foreground="{StaticResource TextBrush}">
+          <TextBlock.Style>
+            <Style TargetType="TextBlock">
+              <Setter Property="Text" Value="Note"/>
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding StatusKindName}" Value="Success"><Setter Property="Text" Value="Done"/></DataTrigger>
+                <DataTrigger Binding="{Binding StatusKindName}" Value="Error"><Setter Property="Text" Value="Problem"/></DataTrigger>
+              </Style.Triggers>
+            </Style>
+          </TextBlock.Style>
+        </TextBlock>
+        <TextBlock Grid.Column="1" Text="{Binding StatusText}" TextWrapping="Wrap" FontSize="13"
+                   Foreground="{StaticResource TextBrush}"/>
+      </Grid>
+    </Border>
+  </StackPanel>
+</UserControl>

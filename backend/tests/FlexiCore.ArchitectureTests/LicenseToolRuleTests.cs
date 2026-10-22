@@ -49,7 +49,9 @@ public class LicenseToolRuleTests
         {
             var relative = Relative(root, project);
             if (relative.StartsWith("tools/FlexiCore.LicenseTool/", StringComparison.Ordinal)
-                || relative.StartsWith("tests/FlexiCore.LicenseTool.Tests/", StringComparison.Ordinal))
+                || relative.StartsWith("tests/FlexiCore.LicenseTool.Tests/", StringComparison.Ordinal)
+                || relative.StartsWith("tools/FlexiCore.ActivationEngine/", StringComparison.Ordinal)
+                || relative.StartsWith("tests/FlexiCore.ActivationEngine.Tests/", StringComparison.Ordinal))
                 continue;
 
             Assert.DoesNotContain("FlexiCore.LicenseTool", File.ReadAllText(project), StringComparison.Ordinal);

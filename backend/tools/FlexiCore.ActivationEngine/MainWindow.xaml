@@ -1,0 +1,69 @@
+<Window x:Class="FlexiCore.ActivationEngine.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:FlexiCore.ActivationEngine.ViewModels"
+        xmlns:views="clr-namespace:FlexiCore.ActivationEngine.Views"
+        Title="FlexiCore Activation Engine"
+        Width="1240" Height="780" MinWidth="900" MinHeight="560"
+        WindowStartupLocation="CenterScreen" WindowState="Maximized" ResizeMode="CanResize"
+        Background="{StaticResource AppBackground}"
+        FontFamily="{StaticResource UiFont}">
+
+  <Window.Resources>
+    <DataTemplate DataType="{x:Type vm:DashboardViewModel}"><views:DashboardView/></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:CustomersViewModel}"><views:CustomersView/></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:LedgerPageViewModel}"><views:LedgerPageView/></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:ActivateViewModel}"><views:ActivateView/></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:IssueViewModel}"><views:IssueView/></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:KeysViewModel}"><views:KeysView/></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:SettingsViewModel}"><views:SettingsView/></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:HelpViewModel}"><views:HelpView/></DataTemplate>
+    <DataTemplate DataType="{x:Type vm:KeyManagementViewModel}"><views:KeyManagementView/></DataTemplate> <DataTemplate DataType="{x:Type vm:PageViewModel}"><views:PageView/></DataTemplate>
+  </Window.Resources>
+
+  <Grid>
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="248"/>
+      <ColumnDefinition Width="*"/>
+    </Grid.ColumnDefinitions>
+
+    <Border Background="{StaticResource SidebarBrush}">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Top" Margin="28,32,24,26">
+          <TextBlock Text="FlexiCore" FontSize="22" FontWeight="Bold" Foreground="White"/>
+          <TextBlock Text="ACTIVATION ENGINE" FontSize="11" FontWeight="SemiBold"
+                     Foreground="{StaticResource AccentBrush}" Margin="0,3,0,0"/>
+          <Border Height="1" Background="#1F3A5F" Margin="0,22,0,0"/>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Bottom" Margin="28,0,24,24">
+          <Border Height="1" Background="#1F3A5F" Margin="0,0,0,16"/>
+          <TextBlock Text="Owner console, offline" FontSize="12" Foreground="{StaticResource SidebarTextBrush}"/>
+          <TextBlock Text="Vendor-side tool. Never ship it to customers." FontSize="11"
+                     Foreground="{StaticResource SidebarMutedBrush}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+        </StackPanel>
+
+        <ListBox ItemsSource="{Binding Items}"
+                 SelectedItem="{Binding Selected, Mode=TwoWay}"
+                 ItemContainerStyle="{StaticResource NavItem}"
+                 Background="Transparent" BorderThickness="0"
+                 AutomationProperties.Name="Main navigation"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+          <ListBox.ItemTemplate>
+            <DataTemplate>
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="{Binding Glyph}" FontFamily="{StaticResource IconFont}" FontSize="16"
+                           Width="30" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding Title}" FontSize="14" VerticalAlignment="Center"/>
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
+
+    <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <ContentControl Content="{Binding CurrentPage}" Margin="36,28,36,28" MaxWidth="1100"/>
+    </ScrollViewer>
+  </Grid>
+</Window>
