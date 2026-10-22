@@ -498,3 +498,12 @@ issued*.jsonl
 
 # Local dev license store, never commit
 .local-licenses/
+
+# local scratch, backups and signing material
+*.bak
+*.bak-*
+*.backup-*
+*.before-*.bak
+activation-engine-inspection*
+flexicore-owner-2026-01.json
+client/flutter_*.png
