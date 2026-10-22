@@ -1,12 +1,16 @@
 {
-  "keys": [
-    {
-      "keyId": "fc-2026-a",
-      "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE14toxnPWpxj5MgH4tH63/kREzhQwIVGCNb87V9gjDw4Vcp/CPHV/MQ71YE25YZLZJVPZyjByDIPa8tqByNK1IA=="
-    },
-    {
-      "keyId": "fc-2026-b",
-      "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEMLkwz74eXzCeH4VrbxJHjlj6cg4cVD+7SCV5pIunFpXwFfRkHzOE9uzmIZG6CdZsIo+u085bLcMulHjFEhixug=="
-    }
-  ]
+    "keys":  [
+                 {
+                     "keyId":  "fc-2026-a",
+                     "publicKey":  "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE14toxnPWpxj5MgH4tH63/kREzhQwIVGCNb87V9gjDw4Vcp/CPHV/MQ71YE25YZLZJVPZyjByDIPa8tqByNK1IA=="
+                 },
+                 {
+                     "keyId":  "fc-2026-b",
+                     "publicKey":  "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEMLkwz74eXzCeH4VrbxJHjlj6cg4cVD+7SCV5pIunFpXwFfRkHzOE9uzmIZG6CdZsIo+u085bLcMulHjFEhixug=="
+                 },
+                 {
+                     "keyId":  "flexicore-owner-2026-01",
+                     "publicKey":  "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE1WZ3fHeRCJT1XQkYteqxP3pTAjTIcjqO6Bjk54LKnwCdBjDIugbE23to/4HHaR5y/xIhzULnsGXJvlVdoRIKcQ=="
+                 }
+             ]
 }
