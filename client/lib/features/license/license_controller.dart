@@ -34,6 +34,9 @@ class LicenseController extends ChangeNotifier {
   LicenseUiState get state => _state;
   LicenseStatus? get status => _status;
   bool get isLocalMode => _status?.mode == 'local' && _status!.licenseRequired;
+
+  /// True when the license has expired: the app opens and shows data, but the server blocks changes.
+  bool get isReadOnly => isLocalMode && _status?.state == 'expired';
   String? get problem => _problem;
   String? get importError => _importError;
   bool get busy => _busy;
@@ -83,6 +86,30 @@ class LicenseController extends ChangeNotifier {
     _problem = null;
     _importError = null;
     notifyListeners();
+  }
+
+  /// Leaves the activation screen without changing the license (read-only mode continues).
+  void closeActivation() {
+    check();
+  }
+
+  bool _refreshing = false;
+
+  /// Re-reads the license status without the checking spinner. Used when the server refuses a
+  /// change because of the license, so the banner and screens match the real state.
+  Future<void> refreshStatus() async {
+    if (_refreshing || _busy || _state != LicenseUiState.ready) return;
+    _refreshing = true;
+    try {
+      final next = await _fetchStatus();
+      if (next != null) {
+        _apply(next);
+        notifyListeners();
+      }
+    } catch (_) {
+      // Keep the current state; the next normal check retries.
+    }
+    _refreshing = false;
   }
 
   Future<void> check() async {
@@ -143,6 +170,9 @@ class LicenseController extends ChangeNotifier {
         break;
       case LicenseGate.needsLicense:
         _state = LicenseUiState.needsLicense;
+        break;
+      case LicenseGate.readOnly:
+        _state = LicenseUiState.ready;
         break;
       case LicenseGate.unavailable:
         _state = LicenseUiState.unavailable;

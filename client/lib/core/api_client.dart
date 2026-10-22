@@ -19,6 +19,7 @@ class ApiClient {
     required TokenStorage storage,
     http.Client? httpClient,
     this.onSessionExpired,
+    this.onLicenseBlocked,
   }) : _storage = storage,
        _http = httpClient ?? http.Client();
 
@@ -28,6 +29,9 @@ class ApiClient {
 
   /// Called when a refresh is rejected, so the app can return to login.
   final void Function()? onSessionExpired;
+
+  /// Called when the server refuses a request because of the license (HTTP 403, license-required).
+  final void Function()? onLicenseBlocked;
 
   String? _accessToken;
   Future<bool>? _refreshing;
@@ -76,14 +80,22 @@ class ApiClient {
     Map<String, dynamic>? body,
   }) async {
     var response = await _sendAuthed(method, path, body);
-    if (response.statusCode != 401) return response;
+    if (response.statusCode != 401) return _checkLicense(response);
 
     final refreshed = await _refreshOnce();
     if (!refreshed) {
       onSessionExpired?.call();
       return response;
     }
-    return _sendAuthed(method, path, body);
+    return _checkLicense(await _sendAuthed(method, path, body));
+  }
+
+  http.Response _checkLicense(http.Response response) {
+    if (response.statusCode == 403 &&
+        response.body.contains('license-required')) {
+      onLicenseBlocked?.call();
+    }
+    return response;
   }
 
   Future<http.Response> _sendAuthed(

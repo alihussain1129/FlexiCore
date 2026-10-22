@@ -45,7 +45,7 @@ void main() {
       });
     }
 
-    for (final state in ['missing', 'invalid', 'expired', 'notYetValid']) {
+    for (final state in ['missing', 'invalid', 'notYetValid']) {
       test('local mode with $state asks for a license', () async {
         final c = _controller(status: () async => _local(state));
         await c.check();

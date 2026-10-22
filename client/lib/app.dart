@@ -68,6 +68,67 @@ class FlexiCoreApp extends StatelessWidget {
   }
 }
 
+/// Shows a renewal banner above the app when the license has expired (read-only mode).
+class _ReadOnlyFrame extends StatelessWidget {
+  const _ReadOnlyFrame({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final license = context.watch<LicenseController>();
+    if (!license.isReadOnly) return child;
+    final theme = Theme.of(context);
+    final expired = license.status?.license?.expiresAt;
+    final when = expired == null
+        ? ''
+        : ' on ${expired.toUtc().toIso8601String().substring(0, 10)}';
+    return Column(
+      children: [
+        Material(
+          color: theme.colorScheme.errorContainer,
+          child: SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.lock_clock,
+                    size: 20,
+                    color: theme.colorScheme.onErrorContainer,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Your license expired$when. FlexiCore is read-only: you can view and export, but not change data.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onErrorContainer,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  FilledButton(
+                    onPressed: license.openActivation,
+                    child: const Text('Renew license'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: MediaQuery.removePadding(
+            context: context,
+            removeTop: true,
+            child: child,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _Root extends StatelessWidget {
   const _Root();
 
@@ -97,7 +158,7 @@ class _Root extends StatelessWidget {
       case SessionStatus.signedOut:
         return const LoginScreen();
       case SessionStatus.signedIn:
-        return const WorkspaceScreen();
+        return const _ReadOnlyFrame(child: WorkspaceScreen());
     }
   }
 }

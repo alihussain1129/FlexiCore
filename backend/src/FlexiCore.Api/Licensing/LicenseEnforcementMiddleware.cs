@@ -5,7 +5,8 @@ namespace FlexiCore.Api.Licensing;
 
 /// <summary>
 /// Local mode only. Unless the installed license is Valid or ValidInGrace, every request outside a short allow-list
-/// is answered with 403. Fail closed: Missing, Invalid, Expired, NotYetValid and Unavailable all block.
+/// is answered with 403. Fail closed: Missing, Invalid, NotYetValid and Unavailable all block.
+/// Expired is read-only: GET, HEAD and OPTIONS pass so the customer can still view data; every other method gets 403.
 /// The license is re-evaluated on each request (a small file read and one signature check), so activation takes
 /// effect immediately and expiry is never cached.
 /// </summary>
@@ -24,6 +25,9 @@ internal sealed class LicenseEnforcementMiddleware(RequestDelegate next)
     private const string LocalSetupPath = "/api/v1/local/setup";
     // Anonymous by design; the endpoint itself requires a valid license, a one-time code and a rate limit.
     private const string DevicePairPath = "/api/v1/devices/pair";
+
+    private static bool IsReadOnlyMethod(string method) =>
+        HttpMethods.IsGet(method) || HttpMethods.IsHead(method) || HttpMethods.IsOptions(method);
 
     public async Task InvokeAsync(HttpContext context, LicenseService service)
     {
@@ -55,6 +59,13 @@ internal sealed class LicenseEnforcementMiddleware(RequestDelegate next)
             var report = await service.GetStatusAsync(context.RequestAborted);
             if (report.State is LicenseState.Valid or LicenseState.ValidInGrace)
             {
+                await next(context);
+                return;
+            }
+
+            if (report.State == LicenseState.Expired && IsReadOnlyMethod(context.Request.Method))
+            {
+                context.Response.Headers["X-License-State"] = "expired-read-only";
                 await next(context);
                 return;
             }

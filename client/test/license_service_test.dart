@@ -52,7 +52,7 @@ void main() {
       'validInGrace': LicenseGate.proceed,
       'missing': LicenseGate.needsLicense,
       'invalid': LicenseGate.needsLicense,
-      'expired': LicenseGate.needsLicense,
+      'expired': LicenseGate.readOnly,
       'notYetValid': LicenseGate.needsLicense,
       'unavailable': LicenseGate.unavailable,
       'someFutureState': LicenseGate.unavailable,

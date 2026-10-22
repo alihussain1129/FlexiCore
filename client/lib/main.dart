@@ -17,11 +17,13 @@ void main() {
   final storage = SecureTokenStorage();
   final appearance = AppearanceController()..load();
 
+  late final LicenseController license;
   late final SessionController session;
   final api = ApiClient(
     baseUrl: AppConfig.apiBaseUrl,
     storage: storage,
     onSessionExpired: () => session.markSignedOut(),
+    onLicenseBlocked: () => license.refreshStatus(),
   );
 
   session = SessionController(
@@ -31,7 +33,7 @@ void main() {
   )..start();
 
   final licenseService = LicenseService(api);
-  final license = LicenseController(
+  license = LicenseController(
     fetchStatus: licenseService.fetchStatus,
     importLicense: licenseService.importLicense,
     fetchRequestCode: licenseService.fetchRequestCode,

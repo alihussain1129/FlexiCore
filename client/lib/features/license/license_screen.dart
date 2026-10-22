@@ -341,13 +341,21 @@ class _LicenseScreenState extends State<LicenseScreen> {
           ],
         ),
         const SizedBox(height: 4),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            onPressed: controller.busy ? null : controller.check,
-            icon: const Icon(Icons.refresh, size: 18),
-            label: const Text('Check again'),
-          ),
+        Wrap(
+          spacing: 8,
+          children: [
+            TextButton.icon(
+              onPressed: controller.busy ? null : controller.check,
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('Check again'),
+            ),
+            if (controller.isReadOnly)
+              TextButton.icon(
+                onPressed: controller.busy ? null : controller.closeActivation,
+                icon: const Icon(Icons.arrow_back, size: 18),
+                label: const Text('Continue in read-only mode'),
+              ),
+          ],
         ),
       ],
     );

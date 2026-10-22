@@ -13,6 +13,9 @@ enum LicenseGate {
   /// Show the activation screen.
   needsLicense,
 
+  /// The license has expired. Sign-in and reading continue; the server blocks changes.
+  readOnly,
+
   /// The server cannot decide (for example this build has no trusted keys).
   /// Fail closed: show a notice and offer a retry.
   unavailable,
@@ -78,9 +81,10 @@ class LicenseStatus {
         return LicenseGate.proceed;
       case 'missing':
       case 'invalid':
-      case 'expired':
       case 'notYetValid':
         return LicenseGate.needsLicense;
+      case 'expired':
+        return LicenseGate.readOnly;
       default:
         // 'unavailable' or a state this client does not know: never let it through.
         return LicenseGate.unavailable;
