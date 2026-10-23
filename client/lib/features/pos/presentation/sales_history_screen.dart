@@ -5,9 +5,12 @@ import 'package:flutter/services.dart';
 
 import '../../../data/local/app_database.dart';
 import '../data/local/local_pos_settings_repository.dart';
+import '../data/local/local_returns_repository.dart';
 import '../data/local/local_sales_history_repository.dart';
 import '../domain/pos_format.dart';
 import 'pos_receipt_text.dart';
+import 'return_dialog.dart';
+import 'return_receipt_text.dart';
 
 String _statusLabel(String status) {
   switch (status) {
@@ -66,6 +69,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
 
   late final LocalSalesHistoryRepository _repo;
   late final LocalPosSettingsRepository _settingsRepo;
+  late final LocalReturnsRepository _returnsRepo;
   final _search = TextEditingController();
   Timer? _debounce;
   int _version = 0;
@@ -78,6 +82,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
   List<SaleRow> _sales = [];
   SalesSummary _summary = SalesSummary.empty;
   List<DailyTotal> _daily = [];
+  ReturnsSummary _returns = ReturnsSummary.empty;
   bool _loading = true;
   bool _loadingMore = false;
   bool _hasMore = false;
@@ -88,6 +93,10 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     super.initState();
     _repo = LocalSalesHistoryRepository(widget.db, companyId: widget.companyId);
     _settingsRepo = LocalPosSettingsRepository(
+      widget.db,
+      companyId: widget.companyId,
+    );
+    _returnsRepo = LocalReturnsRepository(
       widget.db,
       companyId: widget.companyId,
     );
@@ -149,11 +158,17 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
       final sales = await _repo.search(filter, limit: _pageSize);
       final summary = await _repo.summary(filter);
       final daily = await _repo.dailyTotals(filter);
+      final returns = await _returnsRepo.summary(
+        from: filter.from,
+        toExclusive: filter.toExclusive,
+        refundMethod: filter.paymentMethod,
+      );
       if (!mounted || v != _version) return;
       setState(() {
         _sales = sales;
         _summary = summary;
         _daily = daily;
+        _returns = returns;
         _hasMore = sales.length == _pageSize;
         _knownMethods.addAll(summary.byMethod.map((m) => m.method));
         if (_method != null) _knownMethods.add(_method!);
@@ -223,15 +238,23 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     try {
       final detail = await _repo.detail(sale.id);
       final config = await _settingsRepo.load();
+      final returns = await _returnsRepo.returnsForSale(sale.id);
+      final returnable = await _returnsRepo.returnable(sale.id);
       if (!mounted) return;
-      await showDialog<void>(
+      final changed = await showDialog<bool>(
         context: context,
         builder: (_) => _SaleDetailDialog(
           detail: detail,
+          returns: returns,
+          returnable: returnable,
+          onSubmitReturn: _returnsRepo.processReturn,
           businessName: widget.businessName,
           footer: config.receiptFooter,
         ),
       );
+      if (changed == true && mounted) {
+        await _load();
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = 'Could not open this sale: $e');
@@ -280,56 +303,67 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                   ),
           ),
         ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          runSpacing: 4,
-          children: [
-            _chip(
-              'Today',
-              _range == _Range.today,
-              () => _pickRange(_Range.today),
-            ),
-            _chip(
-              'Yesterday',
-              _range == _Range.yesterday,
-              () => _pickRange(_Range.yesterday),
-            ),
-            _chip(
-              'Last 7 days',
-              _range == _Range.week,
-              () => _pickRange(_Range.week),
-            ),
-            _chip(
-              'This month',
-              _range == _Range.month,
-              () => _pickRange(_Range.month),
-            ),
-            _chip('All', _range == _Range.all, () => _pickRange(_Range.all)),
-            ActionChip(
-              avatar: const Icon(Icons.date_range, size: 18),
-              label: Text(
-                _range == _Range.custom ? _rangeText() : 'Pick dates',
-              ),
-              onPressed: _pickCustom,
-            ),
-          ],
+        const SizedBox(height: 8),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final chip in <Widget>[
+                _chip(
+                  'Today',
+                  _range == _Range.today,
+                  () => _pickRange(_Range.today),
+                ),
+                _chip(
+                  'Yesterday',
+                  _range == _Range.yesterday,
+                  () => _pickRange(_Range.yesterday),
+                ),
+                _chip(
+                  'Last 7 days',
+                  _range == _Range.week,
+                  () => _pickRange(_Range.week),
+                ),
+                _chip(
+                  'This month',
+                  _range == _Range.month,
+                  () => _pickRange(_Range.month),
+                ),
+                _chip(
+                  'All',
+                  _range == _Range.all,
+                  () => _pickRange(_Range.all),
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.date_range, size: 18),
+                  label: Text(
+                    _range == _Range.custom ? _rangeText() : 'Pick dates',
+                  ),
+                  onPressed: _pickCustom,
+                ),
+              ])
+                Padding(padding: const EdgeInsets.only(right: 8), child: chip),
+            ],
+          ),
         ),
-        const SizedBox(height: 4),
-        Wrap(
-          spacing: 8,
-          runSpacing: 4,
-          children: [
-            _chip('Any method', _method == null, () {
-              setState(() => _method = null);
-              _load();
-            }),
-            for (final m in (_knownMethods.toList()..sort()))
-              _chip(m, _method == m, () {
-                setState(() => _method = m);
-                _load();
-              }),
-          ],
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final chip in <Widget>[
+                _chip('Any method', _method == null, () {
+                  setState(() => _method = null);
+                  _load();
+                }),
+                for (final m in (_knownMethods.toList()..sort()))
+                  _chip(m, _method == m, () {
+                    setState(() => _method = m);
+                    _load();
+                  }),
+              ])
+                Padding(padding: const EdgeInsets.only(right: 8), child: chip),
+            ],
+          ),
         ),
       ],
     );
@@ -404,10 +438,45 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                   ),
                 ),
             ],
+            if (_returns.count > 0) ...[
+              const Divider(height: 24),
+              Text(
+                'Returns made in this period',
+                style: theme.textTheme.labelLarge,
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 16,
+                runSpacing: 12,
+                children: [
+                  _stat('Returns', '${_returns.count}'),
+                  _stat('Goods returned', _rs(_returns.valueE4)),
+                  _stat('Refunded', _rs(_returns.refundE4)),
+                  _stat('Net sales', _rs(s.totalE4 - _returns.valueE4)),
+                ],
+              ),
+              for (final m
+                  in (_returns.refundsByMethod.entries.toList()
+                    ..sort((a, b) => a.key.compareTo(b.key))))
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(
+                    children: [
+                      Expanded(child: Text('Refunded in ${m.key}')),
+                      Text(_rs(m.value)),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 6),
+              Text(
+                'Net sales = sales total minus goods returned in this period.',
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
             if (s.excludedCount > 0) ...[
               const SizedBox(height: 8),
               Text(
-                '${s.excludedCount} voided or returned '
+                '${s.excludedCount} voided '
                 '${s.excludedCount == 1 ? 'sale is' : 'sales are'} not counted '
                 'in these totals.',
                 style: theme.textTheme.bodySmall,
@@ -515,7 +584,10 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     ];
     return Material(
       type: MaterialType.transparency,
-      child: ListView(padding: const EdgeInsets.all(12), children: children),
+      child: SafeArea(
+        bottom: false,
+        child: ListView(padding: const EdgeInsets.all(12), children: children),
+      ),
     );
   }
 }
@@ -523,11 +595,17 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
 class _SaleDetailDialog extends StatefulWidget {
   const _SaleDetailDialog({
     required this.detail,
+    required this.returns,
+    required this.returnable,
+    required this.onSubmitReturn,
     required this.businessName,
     required this.footer,
   });
 
   final SaleDetail detail;
+  final List<ReturnReceipt> returns;
+  final ReturnableSale returnable;
+  final ReturnSubmit onSubmitReturn;
   final String? businessName;
   final String? footer;
 
@@ -537,6 +615,74 @@ class _SaleDetailDialog extends StatefulWidget {
 
 class _SaleDetailDialogState extends State<_SaleDetailDialog> {
   bool _copied = false;
+  String? _copiedReturnId;
+
+  Future<void> _startReturn() async {
+    final receipt = await showDialog<ReturnReceipt>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => ReturnDialog(
+        sale: widget.returnable,
+        defaultCashier: widget.detail.createdBy,
+        onSubmit: widget.onSubmitReturn,
+      ),
+    );
+    if (receipt == null || !mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => ReturnReceiptDialog(
+        receipt: receipt,
+        businessName: widget.businessName,
+        footer: widget.footer,
+      ),
+    );
+    if (!mounted) return;
+    Navigator.of(context).pop(true);
+  }
+
+  Future<void> _copyReturn(ReturnReceipt r) async {
+    final text = buildReturnReceiptText(
+      r,
+      businessName: widget.businessName,
+      footer: widget.footer,
+    );
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    setState(() => _copiedReturnId = r.id);
+  }
+
+  Widget _returnTile(ReturnReceipt r) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(PosFormat.dateTime(r.createdAt.toLocal())),
+                Text(
+                  'Goods Rs ${PosFormat.money(r.totalE4)}  -  '
+                  'Refund Rs ${PosFormat.money(r.refundE4)} (${r.refundMethod})',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                Text(
+                  'Reason: ${r.reason}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Copy return receipt',
+            icon: Icon(_copiedReturnId == r.id ? Icons.check : Icons.copy),
+            onPressed: () => _copyReturn(r),
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> _copy() async {
     final text = buildReprintText(
@@ -613,6 +759,12 @@ class _SaleDetailDialogState extends State<_SaleDetailDialog> {
                       ],
                     ),
                   ),
+              if (widget.returns.isNotEmpty) ...[
+                const Divider(height: 24),
+                Text('Returns', style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 4),
+                for (final r in widget.returns) _returnTile(r),
+              ],
             ],
           ),
         ),
@@ -622,6 +774,13 @@ class _SaleDetailDialogState extends State<_SaleDetailDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Close'),
         ),
+        if (widget.returnable.canReturn)
+          OutlinedButton.icon(
+            key: const Key('sale-return-button'),
+            onPressed: _startReturn,
+            icon: const Icon(Icons.assignment_return),
+            label: const Text('Return'),
+          ),
         FilledButton.icon(
           onPressed: _copy,
           icon: Icon(_copied ? Icons.check : Icons.copy),

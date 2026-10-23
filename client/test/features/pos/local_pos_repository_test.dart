@@ -171,6 +171,38 @@ void main() {
     expect(await onHand('p1'), 80000);
   });
 
+  test('reusing a request ID with a different payment method is rejected', () async {
+    await receiveStock('p1', 100000);
+    await pos.checkout(request());
+
+    await expectLater(
+      pos.checkout(request(paymentMethod: 'card')),
+      throwsA(isA<PosException>()),
+    );
+
+    expect(await countRows('sales'), 1);
+    expect(await countRows('sale_lines'), 1);
+    expect(await countRows('sale_payments'), 1);
+    expect(await countRows('stock_movements'), 2);
+    expect(await onHand('p1'), 80000);
+  });
+
+  test('reusing a request ID with a different amount paid is rejected', () async {
+    await receiveStock('p1', 100000);
+    await pos.checkout(request());
+
+    await expectLater(
+      pos.checkout(request(amountPaidE4: 40000)),
+      throwsA(isA<PosException>()),
+    );
+
+    expect(await countRows('sales'), 1);
+    expect(await countRows('sale_lines'), 1);
+    expect(await countRows('sale_payments'), 1);
+    expect(await countRows('stock_movements'), 2);
+    expect(await onHand('p1'), 80000);
+  });
+
   test('payment-write failure rolls back the entire checkout', () async {
     await receiveStock('p1', 100000);
 

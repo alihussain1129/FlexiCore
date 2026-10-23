@@ -164,7 +164,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                   padding: const EdgeInsets.only(top: 16),
                   child: Text(
                     c.error!,
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
                   ),
                 ),
         ),

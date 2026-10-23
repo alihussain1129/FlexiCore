@@ -265,6 +265,7 @@ class SaleReturnLines extends Table {
   @override
   Set<Column> get primaryKey => {id};
 }
+
 @DriftDatabase(
   tables: [
     Units,

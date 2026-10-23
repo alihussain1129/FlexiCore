@@ -17,12 +17,14 @@ class OverviewScreen extends StatelessWidget {
     required this.catalog,
     this.actions = const [],
     this.productsIndex = 1,
+    this.stockIndex,
   });
 
   final ProfileController profile;
   final CatalogController catalog;
   final List<Widget> actions;
   final int productsIndex;
+  final int? stockIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -176,6 +178,72 @@ class OverviewScreen extends StatelessWidget {
                               ),
                             ),
                           ),
+                          if (stockIndex != null) ...[
+                            const SizedBox(height: 12),
+                            SectionCard(
+                              title: 'Stock',
+                              child: InkWell(
+                                onTap: () =>
+                                    ShellScope.maybeOf(context)
+                                        ?.goTo(stockIndex!),
+                                borderRadius: BorderRadius.circular(12),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 6,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 40,
+                                        height: 40,
+                                        decoration: BoxDecoration(
+                                          color: AppColors.tealSoft,
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                        child: const Icon(
+                                          Icons.move_to_inbox_outlined,
+                                          color: AppColors.teal,
+                                          size: 22,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      const Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Receive stock',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            Text(
+                                              'Add stock to a product so it can be sold',
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: AppColors.muted,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const Icon(
+                                        Icons.chevron_right,
+                                        color: AppColors.muted,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 18),
                           const Text(
                             'FlexiCore works offline. Your data is stored on '

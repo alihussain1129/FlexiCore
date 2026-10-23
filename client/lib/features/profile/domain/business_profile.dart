@@ -54,7 +54,13 @@ class ProfileRules {
   ];
 
   static const currencies = <String>[
-    'PKR', 'USD', 'EUR', 'GBP', 'AED', 'SAR', 'INR',
+    'PKR',
+    'USD',
+    'EUR',
+    'GBP',
+    'AED',
+    'SAR',
+    'INR',
   ];
 
   /// Returns a trimmed, normalised copy, or throws [ProfileException].

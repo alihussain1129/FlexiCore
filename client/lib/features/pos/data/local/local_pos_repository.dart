@@ -452,10 +452,18 @@ class LocalPosRepository {
         request.orderDiscountE4 +
         request.lineDiscountsE4.values.fold<int>(0, (a, b) => a + b);
 
+    final requestedReason = request.discountReason?.trim();
+    final normalizedReason =
+        requestedReason == null || requestedReason.isEmpty
+        ? null
+        : requestedReason;
+
     if (existing.paymentMethod != paymentMethod ||
         existing.amountPaidE4 != request.amountPaidE4 ||
         existing.discountE4 != requestedDiscountE4 ||
         existing.changeE4 != changeE4 ||
+        existing.createdBy != request.createdBy.trim() ||
+        existing.discountReason != normalizedReason ||
         (request.warehouseId != null &&
             existing.warehouseId != request.warehouseId)) {
       throw const PosException(
@@ -478,7 +486,9 @@ class LocalPosRepository {
         (line) => line.productId == item.productId,
       );
       if (matching.length != 1 ||
-          matching.single.quantityE4 != item.quantityE4) {
+          matching.single.quantityE4 != item.quantityE4 ||
+          matching.single.discountE4 !=
+              (request.lineDiscountsE4[item.productId] ?? 0)) {
         throw const PosException(
           'This checkout request ID was already used for a different cart.',
         );

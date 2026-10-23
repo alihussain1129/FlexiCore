@@ -93,6 +93,18 @@ void main() {
     expect(parseQtyE4('1.23456'), isNull);
     expect(parseQtyE4('-1'), isNull);
     expect(parseQtyE4(''), isNull);
+    expect(parseUnitCostE4('3000'), 30000000);
+    expect(parseUnitCostE4('3000.50'), 30005000);
+    expect(parseUnitCostE4('3,000'), 30000000);
+    expect(parseUnitCostE4('3,000.50'), 30005000);
+    expect(parseUnitCostE4('0'), 0);
+    expect(parseUnitCostE4(''), isNull);
+    expect(parseUnitCostE4('abc'), isNull);
+    expect(parseUnitCostE4('30.00.50'), isNull);
+    expect(parseUnitCostE4('30,00'), isNull);
+    expect(parseUnitCostE4('3,00,0'), isNull);
+    expect(parseUnitCostE4('-3000'), isNull);
+    expect(parseUnitCostE4('3000.12345'), isNull);
     expect(formatQtyE4(125000), '12.5');
     expect(formatQtyE4(120000), '12');
     expect(formatQtyE4(1234500000), '123,450');

@@ -13,8 +13,9 @@ import '../profile/presentation/profile_controller.dart';
 import '../profile/presentation/profile_edit_dialog.dart';
 
 /// Closes the database, restores [backup], and reopens the app on the result.
-typedef RestoreHandler =
-    Future<({bool ok, String message})> Function(File backup);
+typedef RestoreHandler = Future<({bool ok, String message})> Function(
+  File backup,
+);
 
 enum _Action { profile, backup, restore, check }
 

@@ -68,7 +68,10 @@ class _LocalSetupScreenState extends State<LocalSetupScreen> {
     });
     try {
       final username = _username.text.trim();
-      await _service.createFirstOwner(username: username, password: _password.text);
+      await _service.createFirstOwner(
+        username: username,
+        password: _password.text,
+      );
       if (!mounted) return;
       setState(() => _setupRequired = false);
       await context.read<SessionController>().login(username, _password.text);
@@ -152,9 +155,12 @@ class _LocalSetupScreenState extends State<LocalSetupScreen> {
                   const SizedBox(height: 24),
                   TextFormField(
                     controller: _username,
-                    decoration: const InputDecoration(labelText: 'Owner username'),
+                    decoration: const InputDecoration(
+                      labelText: 'Owner username',
+                    ),
                     keyboardType: TextInputType.text,
-                    validator: (value) => value == null || value.trim().length < 3
+                    validator: (value) =>
+                        value == null || value.trim().length < 3
                         ? 'Use at least 3 characters.'
                         : null,
                   ),

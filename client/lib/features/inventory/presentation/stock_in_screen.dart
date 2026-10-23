@@ -528,6 +528,7 @@ class _MovementSheetState extends State<_MovementSheet> {
   final String _requestId = generateUuidV4();
 
   String? _error;
+  String? _costError;
   bool _saving = false;
   bool _review = false;
   int _qtyE4 = 0;
@@ -602,12 +603,17 @@ class _MovementSheetState extends State<_MovementSheet> {
     }
     int? cost;
     if (_hasCost && _cost.text.trim().isNotEmpty) {
-      cost = parseQtyE4(_cost.text);
+      cost = parseUnitCostE4(_cost.text);
       if (cost == null) {
-        setState(() => _error = 'Enter a valid unit cost, or leave it empty.');
+        setState(() {
+          _costError =
+              'Enter a valid amount, e.g. 3000 or 3,000.50, or leave it empty.';
+          _error = null;
+        });
         return;
       }
     }
+    _costError = null;
     if (_needsReason && _note.text.trim().isEmpty) {
       setState(
         () => _error = _isAdjust
@@ -770,10 +776,17 @@ class _MovementSheetState extends State<_MovementSheet> {
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
-                  decoration: const InputDecoration(
+                  onChanged: (_) {
+                    if (_costError != null) {
+                      setState(() => _costError = null);
+                    }
+                  },
+                  decoration: InputDecoration(
                     labelText: 'Unit cost (optional)',
                     prefixText: 'Rs ',
-                    border: OutlineInputBorder(),
+                    helperText: 'Examples: 3000, 3,000 or 3,000.50',
+                    errorText: _costError,
+                    border: const OutlineInputBorder(),
                   ),
                 ),
               ],
@@ -861,7 +874,7 @@ class _MovementSheetState extends State<_MovementSheet> {
             ],
             const SizedBox(height: 14),
             if (!_review)
-              FilledButton(onPressed: _goReview, child: const Text('Review'))
+              FilledButton(onPressed: _goReview, child: const Text('Review Stock'))
             else
               Row(
                 children: [

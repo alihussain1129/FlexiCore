@@ -134,8 +134,7 @@ class LocalSalesHistoryRepository {
   final String companyId;
   final LocalPosRepository _pos;
 
-  static bool _excluded(String status) =>
-      status == 'voided';
+  static bool _excluded(String status) => status == 'voided';
 
   /// Company, date, method and status filters run in SQL. Text matching runs
   /// in Dart so it is case-insensitive and every character is literal.

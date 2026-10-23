@@ -4,6 +4,7 @@ import '../../../core/ids.dart';
 
 import '../../../data/local/app_database.dart';
 import '../domain/inventory_domain.dart';
+import '../domain/stock_breakdown.dart';
 
 /// Stock repository on the local drift database. Every write runs in one
 /// transaction: the ledger row and the balance change succeed or fail together.
@@ -205,6 +206,10 @@ GROUP BY p.id
 
   Future<List<MovementView>> _views({
     String? productId,
+    String? warehouseId,
+    StockMovementType? type,
+    DateTime? from,
+    DateTime? to,
     required int limit,
   }) async {
     final m = _db.stockMovements;
@@ -214,11 +219,13 @@ GROUP BY p.id
       innerJoin(p, p.id.equalsExp(m.productId)),
       innerJoin(w, w.id.equalsExp(m.warehouseId)),
     ]);
-    q.where(
-      productId == null
-          ? m.companyId.equals(companyId)
-          : m.companyId.equals(companyId) & m.productId.equals(productId),
-    );
+    Expression<bool> cond = m.companyId.equals(companyId);
+    if (productId != null) cond = cond & m.productId.equals(productId);
+    if (warehouseId != null) cond = cond & m.warehouseId.equals(warehouseId);
+    if (type != null) cond = cond & m.movementType.equals(type.dbValue);
+    if (from != null) cond = cond & m.occurredAt.isBiggerOrEqualValue(from);
+    if (to != null) cond = cond & m.occurredAt.isSmallerThanValue(to);
+    q.where(cond);
     q.orderBy([
       OrderingTerm.desc(m.occurredAt),
       OrderingTerm.desc(m.createdAt),
@@ -266,6 +273,128 @@ GROUP BY p.id
     int limit = 100,
   }) => _views(productId: productId, limit: limit);
 
+  /// Movements with optional filters, newest first. [to] is exclusive.
+  Future<List<MovementView>> ledger({
+    String? productId,
+    String? warehouseId,
+    StockMovementType? type,
+    DateTime? from,
+    DateTime? to,
+    int limit = 200,
+  }) => _views(
+    productId: productId,
+    warehouseId: warehouseId,
+    type: type,
+    from: from,
+    to: to,
+    limit: limit,
+  );
+
+  /// Per product in one warehouse: how the balance was built up.
+  Future<List<StockBreakdownLine>> breakdown({
+    required String warehouseId,
+    int limit = 1000,
+  }) async {
+    final rows = await _db
+        .customSelect(
+          r'''
+SELECT p.id AS id, p.sku AS sku, p.name AS name, u.code AS unit_code,
+       COALESCE(s.opening, 0) AS opening, COALESCE(s.received, 0) AS received,
+       COALESCE(s.issued, 0) AS issued, COALESCE(s.other, 0) AS other,
+       COALESCE(b.qty_e4, 0) AS on_hand
+FROM products p
+LEFT JOIN units u ON u.id = p.unit_id AND u.deleted_at IS NULL
+LEFT JOIN (
+  SELECT product_id,
+    SUM(CASE WHEN movement_type = 'opening' THEN qty_e4 ELSE 0 END) AS opening,
+    SUM(CASE WHEN movement_type = 'receipt' THEN qty_e4 ELSE 0 END) AS received,
+    SUM(CASE WHEN movement_type = 'issue' THEN qty_e4 ELSE 0 END) AS issued,
+    SUM(CASE WHEN movement_type IN ('adjustment', 'reversal')
+        THEN qty_e4 ELSE 0 END) AS other
+  FROM stock_movements
+  WHERE company_id = ? AND warehouse_id = ?
+  GROUP BY product_id
+) s ON s.product_id = p.id
+LEFT JOIN stock_balances b ON b.product_id = p.id
+  AND b.company_id = p.company_id AND b.warehouse_id = ?
+WHERE p.company_id = ? AND p.deleted_at IS NULL
+  AND (s.product_id IS NOT NULL OR COALESCE(b.qty_e4, 0) != 0)
+ORDER BY p.name COLLATE NOCASE, p.sku
+LIMIT ?
+''',
+          variables: [
+            Variable.withString(companyId),
+            Variable.withString(warehouseId),
+            Variable.withString(warehouseId),
+            Variable.withString(companyId),
+            Variable.withInt(limit),
+          ],
+        )
+        .get();
+    return [
+      for (final r in rows)
+        StockBreakdownLine(
+          productId: r.read<String>('id'),
+          sku: r.read<String>('sku'),
+          name: r.read<String>('name'),
+          unitCode: r.readNullable<String>('unit_code'),
+          openingE4: r.read<int>('opening'),
+          receivedE4: r.read<int>('received'),
+          issuedE4: r.read<int>('issued'),
+          otherE4: r.read<int>('other'),
+          onHandE4: r.read<int>('on_hand'),
+        ),
+    ];
+  }
+
+  /// Adds a warehouse. The code is upper-cased and must be unique.
+  Future<Warehouse> createWarehouse({
+    required String code,
+    required String name,
+  }) async {
+    final c = code.trim().toUpperCase();
+    final n = name.trim();
+    if (!RegExp(r'^[A-Z0-9_-]{1,20}$').hasMatch(c)) {
+      throw const InventoryException(
+        'The code must be 1 to 20 letters or numbers.',
+      );
+    }
+    if (n.isEmpty || n.length > 80) {
+      throw const InventoryException(
+        'Enter a warehouse name (up to 80 characters).',
+      );
+    }
+    return _db.transaction(() async {
+      final dup =
+          await (_db.select(_db.warehouses)..where(
+                (w) =>
+                    w.companyId.equals(companyId) &
+                    w.code.equals(c) &
+                    w.deletedAt.isNull(),
+              ))
+              .getSingleOrNull();
+      if (dup != null) {
+        throw const InventoryException(
+          'A warehouse with that code already exists.',
+        );
+      }
+      final id = generateUuidV4();
+      await _db
+          .into(_db.warehouses)
+          .insert(
+            WarehousesCompanion.insert(
+              id: id,
+              companyId: companyId,
+              code: c,
+              name: n,
+              updatedAt: _clock(),
+              originDeviceId: Value(originDeviceId),
+            ),
+          );
+      return Warehouse(id: id, code: c, name: n, isDefault: false);
+    });
+  }
+
   @override
   Future<void> record(MovementRequest request) async {
     InventoryRules.validate(request);
@@ -298,8 +427,23 @@ GROUP BY p.id
       throw const InventoryException('The request is not valid.');
     }
     await _db.transaction(() async {
-      final done = await _existingRequest(requestId);
-      if (done) return;
+      final prior =
+          await (_db.select(_db.stockMovements)..where(
+                (m) =>
+                    m.companyId.equals(companyId) &
+                    m.clientRequestId.equals(requestId),
+              ))
+              .getSingleOrNull();
+      if (prior != null) {
+        // A retry of the same reversal is fine. Anything else is a conflict.
+        if (prior.movementType == StockMovementType.reversal.dbValue &&
+            prior.reversesMovementId == movementId) {
+          return;
+        }
+        throw const InventoryException(
+          'Request ID has already been used for a different stock change.',
+        );
+      }
       final original =
           await (_db.select(_db.stockMovements)..where(
                 (m) => m.id.equals(movementId) & m.companyId.equals(companyId),
@@ -345,16 +489,6 @@ GROUP BY p.id
     return t.isEmpty ? null : t;
   }
 
-  Future<bool> _existingRequest(String requestId) async {
-    final dup =
-        await (_db.select(_db.stockMovements)..where(
-              (m) =>
-                  m.companyId.equals(companyId) &
-                  m.clientRequestId.equals(requestId),
-            ))
-            .getSingleOrNull();
-    return dup != null;
-  }
 
   Future<void> _insertMovement({
     required String productId,
@@ -415,6 +549,30 @@ GROUP BY p.id
             .getSingleOrNull();
     if (warehouse == null) {
       throw const InventoryException('That warehouse no longer exists.');
+    }
+    if (type == StockMovementType.opening) {
+      final open = await _db
+          .customSelect(
+            r'''
+SELECT COUNT(*) AS c FROM stock_movements m
+WHERE m.company_id = ? AND m.product_id = ? AND m.warehouse_id = ?
+  AND m.movement_type = 'opening'
+  AND NOT EXISTS (SELECT 1 FROM stock_movements r
+                  WHERE r.reverses_movement_id = m.id)
+''',
+            variables: [
+              Variable.withString(companyId),
+              Variable.withString(productId),
+              Variable.withString(warehouseId),
+            ],
+          )
+          .getSingle();
+      if (open.read<int>('c') > 0) {
+        throw const InventoryException(
+          'Opening stock was already entered for this product here. '
+          'Use Receive stock or Adjust stock instead.',
+        );
+      }
     }
     final balance =
         await (_db.select(_db.stockBalances)..where(

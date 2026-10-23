@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:drift/drift.dart'
+    show ApplyInterceptor, BatchedStatements, QueryExecutor, QueryInterceptor;
 import 'package:drift/native.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -25,6 +27,99 @@ class LocalDatabaseException implements Exception {
       '${cause == null ? '' : ' - $cause'}';
 }
 
+/// Thrown when a write is attempted while the license has expired.
+/// Reads, backup and restore are not affected.
+class ReadOnlyLicenseException implements Exception {
+  const ReadOnlyLicenseException();
+
+  @override
+  String toString() =>
+      'Your license has expired, so FlexiCore is read-only. '
+      'Renew the license to make changes.';
+}
+
+/// Blocks every write statement while [_isReadOnly] returns true.
+/// It does nothing until [armed] is set, so migrations are never blocked.
+class _WriteGuard extends QueryInterceptor {
+  _WriteGuard(this._isReadOnly);
+
+  final bool Function() _isReadOnly;
+  bool armed = false;
+
+  static final RegExp _writeSql = RegExp(
+    r'^\s*(INSERT|UPDATE|DELETE|REPLACE)\b',
+    caseSensitive: false,
+  );
+
+  void _block() {
+    if (armed && _isReadOnly()) throw const ReadOnlyLicenseException();
+  }
+
+  void _blockIfWrite(String sql) {
+    if (_writeSql.hasMatch(sql)) _block();
+  }
+
+  @override
+  Future<int> runInsert(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    _block();
+    return super.runInsert(executor, statement, args);
+  }
+
+  @override
+  Future<int> runUpdate(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    _block();
+    return super.runUpdate(executor, statement, args);
+  }
+
+  @override
+  Future<int> runDelete(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    _block();
+    return super.runDelete(executor, statement, args);
+  }
+
+  @override
+  Future<void> runBatched(
+    QueryExecutor executor,
+    BatchedStatements statements,
+  ) async {
+    _block();
+    return super.runBatched(executor, statements);
+  }
+
+  @override
+  Future<void> runCustom(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    _blockIfWrite(statement);
+    return super.runCustom(executor, statement, args);
+  }
+
+  // Drift sends INSERT/UPDATE ... RETURNING through runSelect.
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    _blockIfWrite(statement);
+    return super.runSelect(executor, statement, args);
+  }
+}
+
 /// Opens (creating and migrating if needed) the persistent business database.
 ///
 /// Data lives in the platform's application-support directory, never in a
@@ -32,6 +127,7 @@ class LocalDatabaseException implements Exception {
 Future<AppDatabase> openAppDatabase({
   Directory? directory,
   String fileName = 'flexicore_local.sqlite',
+  bool Function()? isReadOnly,
 }) async {
   final Directory dir;
   try {
@@ -48,16 +144,22 @@ Future<AppDatabase> openAppDatabase({
   // An older database gets a verified copy before any upgrade runs.
   await copyBeforeUpgrade(file);
 
-  final db = AppDatabase(
-    NativeDatabase.createInBackground(
-      file,
-      setup: (raw) {
-        // WAL: readers do not block the writer; safer for a long-lived app.
-        raw.execute('PRAGMA journal_mode = WAL;');
-        raw.execute('PRAGMA busy_timeout = 5000;');
-      },
-    ),
+  QueryExecutor executor = NativeDatabase.createInBackground(
+    file,
+    setup: (raw) {
+      // WAL: readers do not block the writer; safer for a long-lived app.
+      raw.execute('PRAGMA journal_mode = WAL;');
+      raw.execute('PRAGMA busy_timeout = 5000;');
+    },
   );
+  // The write guard is only installed when the caller supplies a license
+  // check ([isReadOnly]); every other caller behaves exactly as before.
+  _WriteGuard? guard;
+  if (isReadOnly != null) {
+    guard = _WriteGuard(isReadOnly);
+    executor = executor.interceptWith(guard);
+  }
+  final db = AppDatabase(executor);
 
   try {
     // Forces the connection to open and any migration to run now, so a
@@ -72,6 +174,9 @@ Future<AppDatabase> openAppDatabase({
       cause: e,
     );
   }
+  // Armed only now: the database is open and migrated, so no upgrade can be
+  // blocked. From here on, writes follow the live license state.
+  guard?.armed = true;
   return db;
 }
 

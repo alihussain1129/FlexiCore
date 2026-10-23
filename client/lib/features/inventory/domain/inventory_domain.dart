@@ -57,6 +57,30 @@ int? parseQtyE4(String input) {
   return whole * kE4 + fraction;
 }
 
+/// Parses an optional unit cost into the inventory E4 integer representation.
+/// Accepts ungrouped digits or correctly grouped thousands (for example 3,000.50).
+int? parseUnitCostE4(String input) {
+  final text = input.trim();
+  if (text.isEmpty) return null;
+
+  final valid = RegExp(
+    r'^(?:\d{1,12}|\d{1,3}(?:,\d{3})+)(?:\.\d{1,4})?$',
+  );
+  if (!valid.hasMatch(text)) return null;
+
+  final normalized = text.replaceAll(',', '');
+  final parts = normalized.split('.');
+  final whole = BigInt.tryParse(parts[0]);
+  if (whole == null) return null;
+
+  final fractionText = parts.length == 2 ? parts[1].padRight(4, '0') : '0000';
+  final fraction = BigInt.tryParse(fractionText);
+  if (fraction == null) return null;
+
+  final result = whole * BigInt.from(kE4) + fraction;
+  if (result > BigInt.from(0x7FFFFFFFFFFFFFFF)) return null;
+  return result.toInt();
+}
 String formatQtyE4(int value, {int minDecimals = 0}) =>
     formatE4Big(BigInt.from(value), minDecimals: minDecimals);
 
@@ -258,6 +282,15 @@ class InventoryRules {
     }
     if ((r.reason ?? '').length > kMaxReasonLength) {
       throw const InventoryException('The note is too long.');
+    }
+    final moment = r.occurredAt;
+    if (moment != null) {
+      if (moment.isAfter(DateTime.now().add(const Duration(days: 1)))) {
+        throw const InventoryException('The date cannot be in the future.');
+      }
+      if (moment.year < 2000) {
+        throw const InventoryException('The date is too old.');
+      }
     }
   }
 }

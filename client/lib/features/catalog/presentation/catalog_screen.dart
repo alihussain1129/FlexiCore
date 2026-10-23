@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/app_theme.dart';
+import '../../../core/ids.dart';
 import '../../../core/money.dart';
+import '../../inventory/domain/inventory_domain.dart' show parseQtyE4;
 import '../../../core/widgets/app_widgets.dart' show PageHeader;
 import '../domain/catalog_domain.dart';
 import 'catalog_controller.dart';
@@ -1025,6 +1027,13 @@ class _ProductDialogState extends State<_ProductDialog> {
         : Money.formatE4(widget.product!.costPriceE4),
   );
   late String? _unitId = widget.product?.unitId;
+  final TextEditingController _opening = TextEditingController();
+
+  /// One id per dialog: retrying the opening stock never adds it twice.
+  final String _openingRequestId = generateUuidV4();
+
+  /// Set once the product exists, so a retry only repeats the opening stock.
+  CatalogProduct? _created;
   String? _error;
   bool _saving = false;
 
@@ -1035,40 +1044,105 @@ class _ProductDialogState extends State<_ProductDialog> {
     _barcode.dispose();
     _sale.dispose();
     _cost.dispose();
+    _opening.dispose();
     super.dispose();
   }
 
+  bool get _wantsOpening =>
+      widget.product == null &&
+      widget.controller.canRecordOpeningStock &&
+      _opening.text.trim().isNotEmpty;
+
   Future<void> _save() async {
     if (_saving) return;
-    setState(() => _saving = true);
+    final created = _created;
+    if (created != null) {
+      // The product already exists: only the opening stock is retried.
+      await _recordOpening(created);
+      return;
+    }
     final product = widget.product;
-    final error = product == null
-        ? await widget.controller.addProduct(
-            sku: _sku.text,
-            name: _name.text,
-            barcode: _barcode.text,
-            unitId: _unitId,
-            salePrice: _sale.text,
-            costPrice: _cost.text,
-          )
-        : await widget.controller.saveProduct(
-            product,
-            sku: _sku.text,
-            name: _name.text,
-            barcode: _barcode.text,
-            unitId: _unitId,
-            salePrice: _sale.text,
-            costPrice: _cost.text,
-          );
+    if (product == null && _wantsOpening) {
+      final qty = parseQtyE4(_opening.text);
+      if (qty == null || qty <= 0) {
+        setState(
+          () => _error =
+              'Opening stock must be a number above zero (up to 4 decimals), or leave it empty.',
+        );
+        return;
+      }
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    if (product != null) {
+      final error = await widget.controller.saveProduct(
+        product,
+        sku: _sku.text,
+        name: _name.text,
+        barcode: _barcode.text,
+        unitId: _unitId,
+        salePrice: _sale.text,
+        costPrice: _cost.text,
+      );
+      if (!mounted) return;
+      if (error == null) {
+        Navigator.pop(context);
+      } else {
+        setState(() {
+          _error = error;
+          _saving = false;
+        });
+      }
+      return;
+    }
+    final result = await widget.controller.createProduct(
+      sku: _sku.text,
+      name: _name.text,
+      barcode: _barcode.text,
+      unitId: _unitId,
+      salePrice: _sale.text,
+      costPrice: _cost.text,
+    );
+    if (!mounted) return;
+    final made = result.product;
+    if (made == null) {
+      setState(() {
+        _error = result.error;
+        _saving = false;
+      });
+      return;
+    }
+    if (!_wantsOpening) {
+      Navigator.pop(context);
+      return;
+    }
+    _created = made;
+    await _recordOpening(made);
+  }
+
+  Future<void> _recordOpening(CatalogProduct created) async {
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    final error = await widget.controller.recordOpeningStock(
+      productId: created.id,
+      quantityText: _opening.text.trim(),
+      requestId: _openingRequestId,
+    );
     if (!mounted) return;
     if (error == null) {
       Navigator.pop(context);
-    } else {
-      setState(() {
-        _error = error;
-        _saving = false;
-      });
+      return;
     }
+    setState(() {
+      _error =
+          'The product was saved, but its opening stock was not recorded. '
+          '$error You can retry, or add it later from the Stock tab.';
+      _saving = false;
+    });
   }
 
   @override
@@ -1182,6 +1256,29 @@ class _ProductDialogState extends State<_ProductDialog> {
                   ),
                 ),
               ),
+              if (widget.product == null &&
+                  widget.controller.canRecordOpeningStock) ...[
+                gap,
+                TextField(
+                  controller: _opening,
+                  enabled: _created == null,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _save(),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: InputDecoration(
+                    labelText: 'Opening stock (optional)',
+                    helperText:
+                        'How many you already have. Saved once as opening stock.',
+                    helperMaxLines: 2,
+                    suffixText: widget.controller.units
+                        .where((u) => u.id == _unitId)
+                        .firstOrNull
+                        ?.code,
+                  ),
+                ),
+              ],
               _ErrorText(_error),
             ],
           ),
@@ -1190,11 +1287,13 @@ class _ProductDialogState extends State<_ProductDialog> {
       actions: [
         TextButton(
           onPressed: _saving ? null : () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: Text(_created == null ? 'Cancel' : 'Close'),
         ),
         FilledButton(
           onPressed: _saving ? null : _save,
-          child: _saveLabel(_saving),
+          child: _created != null && !_saving
+              ? const Text('Retry opening stock')
+              : _saveLabel(_saving),
         ),
       ],
     );

@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 
 import '../../core/api_client.dart';
 import '../../core/api_exception.dart';
@@ -6,12 +6,11 @@ import '../../core/api_exception.dart';
 class UserProfile {
   UserProfile({required this.id, required this.email, this.username});
 
-  factory UserProfile.fromJson(Map<String, dynamic> json) =>
-      UserProfile(
-        id: json['id'] as String,
-        email: (json['email'] as String?) ?? (json['username'] as String?) ?? '',
-        username: json['username'] as String?,
-      );
+  factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
+    id: json['id'] as String,
+    email: (json['email'] as String?) ?? (json['username'] as String?) ?? '',
+    username: json['username'] as String?,
+  );
 
   final String id;
   final String email;
@@ -66,4 +65,3 @@ class AuthService {
     }
   }
 }
-

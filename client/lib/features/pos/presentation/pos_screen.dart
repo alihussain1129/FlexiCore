@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:drift/drift.dart' hide Column;
@@ -21,11 +22,15 @@ class PosScreen extends StatefulWidget {
     required this.db,
     required this.companyId,
     this.businessName,
+    this.refresh,
   });
 
   final AppDatabase db;
   final String companyId;
   final String? businessName;
+
+  /// Fires when stock changes elsewhere (for example a stock entry).
+  final Listenable? refresh;
 
   @override
   State<PosScreen> createState() => _PosScreenState();
@@ -60,6 +65,11 @@ class _PosScreenState extends State<PosScreen> {
   bool _discountPercent = false;
   bool _loading = true;
   bool _saving = false;
+  String? _pendingCheckoutId;
+  String? _pendingCheckoutFingerprint;
+  bool _checkoutOutcomeUncertain = false;
+
+  bool get _checkoutLocked => _saving || _checkoutOutcomeUncertain;
   bool _paymentEdited = false;
   int _searchVersion = 0;
 
@@ -73,6 +83,7 @@ class _PosScreenState extends State<PosScreen> {
       companyId: widget.companyId,
     );
     _search.addListener(_loadProducts);
+    widget.refresh?.addListener(_loadProducts);
     _initialize();
   }
 
@@ -229,6 +240,7 @@ class _PosScreenState extends State<PosScreen> {
   // ---- cart actions ----
 
   void _add(CatalogProduct product) {
+    if (_checkoutLocked) return;
     final availableE4 = _stockByProduct[product.id] ?? 0;
     final currentE4 = _cart[product.id]?.quantityE4 ?? 0;
     if (availableE4 <= 0) {
@@ -254,6 +266,7 @@ class _PosScreenState extends State<PosScreen> {
   }
 
   void _changeQuantity(String id, int delta) {
+    if (_checkoutLocked) return;
     final line = _cart[id];
     if (line == null) return;
     final next = line.quantityE4 + delta;
@@ -277,6 +290,7 @@ class _PosScreenState extends State<PosScreen> {
   }
 
   Future<void> _editLine(_CartLine line) async {
+    if (_checkoutLocked) return;
     final result = await showDialog<_LineEdit>(
       context: context,
       builder: (context) => _LineEditDialog(
@@ -287,7 +301,7 @@ class _PosScreenState extends State<PosScreen> {
         unitPriceE4: line.product.salePriceE4,
       ),
     );
-    if (result == null || !mounted) return;
+    if (result == null || !mounted || _checkoutLocked) return;
     setState(() {
       if (result.remove) {
         _cart.remove(line.product.id);
@@ -300,11 +314,12 @@ class _PosScreenState extends State<PosScreen> {
   }
 
   Future<void> _openSettings() async {
+    if (_checkoutLocked) return;
     final result = await showDialog<PosConfig>(
       context: context,
       builder: (context) => _SettingsDialog(config: _config),
     );
-    if (result == null) return;
+    if (result == null || _checkoutLocked) return;
     try {
       final saved = await _settingsRepo.save(result);
       if (!mounted) return;
@@ -323,6 +338,30 @@ class _PosScreenState extends State<PosScreen> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(value)));
+  }
+
+  String _checkoutFingerprint(PosCheckoutRequest request) {
+    final items = request.items
+        .map((item) => <Object?>[item.productId, item.quantityE4])
+        .toList()
+      ..sort((a, b) => (a[0] as String).compareTo(b[0] as String));
+
+    final discounts = request.lineDiscountsE4.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+
+    return jsonEncode(<String, Object?>{
+      'items': items,
+      'paymentMethod': request.paymentMethod,
+      'amountPaidE4': request.amountPaidE4,
+      'createdBy': request.createdBy,
+      'warehouseId': request.warehouseId,
+      'orderDiscountE4': request.orderDiscountE4,
+      'lineDiscountsE4': <String, int>{
+        for (final entry in discounts) entry.key: entry.value,
+      },
+      'discountReason': request.discountReason,
+      'cashTenderedE4': request.cashTenderedE4,
+    });
   }
 
   Future<void> _checkout() async {
@@ -400,27 +439,64 @@ class _PosScreenState extends State<PosScreen> {
         if (line.lineDiscountE4 > 0) line.product.id: line.lineDiscountE4,
     };
     final reason = _discountReason.text.trim();
+    final request = PosCheckoutRequest(
+      clientRequestId: _pendingCheckoutId ?? generateUuidV4(),
+      items: items,
+      paymentMethod: _paymentMethod,
+      amountPaidE4: applied,
+      createdBy: cashier,
+      warehouseId: _warehouseId,
+      orderDiscountE4: _orderDiscountE4(),
+      lineDiscountsE4: lineDiscounts,
+      discountReason: reason.isEmpty ? null : reason,
+      cashTenderedE4: isCash ? received : null,
+    );
+    final fingerprint = _checkoutFingerprint(request);
+
+    if (_checkoutOutcomeUncertain &&
+        _pendingCheckoutFingerprint != fingerprint) {
+      _message(
+        'This sale has an uncertain save outcome. Retry the unchanged sale '
+        'or resolve it before starting another sale.',
+      );
+      return;
+    }
+
+    _pendingCheckoutId ??= request.clientRequestId;
+    _pendingCheckoutFingerprint ??= fingerprint;
+
+    if (_pendingCheckoutFingerprint != fingerprint) {
+      _pendingCheckoutId = generateUuidV4();
+      _pendingCheckoutFingerprint = fingerprint;
+    }
 
     setState(() => _saving = true);
+
+    late final PosReceipt receipt;
     try {
-      final receipt = await _pos.checkout(
-        PosCheckoutRequest(
-          clientRequestId: generateUuidV4(),
-          items: items,
-          paymentMethod: _paymentMethod,
-          amountPaidE4: applied,
-          createdBy: cashier,
-          warehouseId: _warehouseId,
-          orderDiscountE4: _orderDiscountE4(),
-          lineDiscountsE4: lineDiscounts,
-          discountReason: reason.isEmpty ? null : reason,
-          cashTenderedE4: isCash ? received : null,
-        ),
-      );
-
+      receipt = await _pos.checkout(request);
+    } catch (e) {
       if (!mounted) return;
-      setState(_clearSale);
+      setState(() => _checkoutOutcomeUncertain = true);
+      _message(
+        'The save outcome could not be confirmed. Do not change this sale; '
+        'retry it to check the same request. ${e is PosException ? e.message : e}',
+      );
+      return;
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
 
+    // A returned receipt confirms that checkout succeeded. Clear retry state
+    // before showing the receipt, so a display error cannot cause a new sale.
+    _pendingCheckoutId = null;
+    _pendingCheckoutFingerprint = null;
+    _checkoutOutcomeUncertain = false;
+
+    if (!mounted) return;
+    setState(_clearSale);
+
+    try {
       await showDialog<void>(
         context: context,
         builder: (context) => _ReceiptDialog(
@@ -431,15 +507,15 @@ class _PosScreenState extends State<PosScreen> {
       );
       await _loadProducts();
     } catch (e) {
-      if (!mounted) return;
-      _message(e is PosException ? e.message : 'Checkout failed: $e');
-    } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) {
+        _message('Sale saved, but receipt display or product refresh failed: $e');
+      }
     }
   }
 
   @override
   void dispose() {
+    widget.refresh?.removeListener(_loadProducts);
     _search
       ..removeListener(_loadProducts)
       ..dispose();
@@ -473,143 +549,179 @@ class _PosScreenState extends State<PosScreen> {
             onPressed: _openSettings,
             icon: const Icon(Icons.tune),
           ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 12),
-            child: Center(
-              child: Chip(
-                avatar: Icon(Icons.wifi_off, size: 17),
-                label: Text('Offline'),
-              ),
-            ),
+          Padding(
+            padding: const EdgeInsets.only(left: 4, right: 14),
+            child: Center(child: _localBadge()),
           ),
         ],
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final wide = constraints.maxWidth >= 900;
-          final products = _productPanel();
-          final cart = _cartPanel();
-
-          if (wide) {
+          if (constraints.maxWidth >= 900) {
             return Padding(
               padding: const EdgeInsets.all(16),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expanded(flex: 6, child: products),
+                  Expanded(flex: 6, child: _productPanel()),
                   const SizedBox(width: 16),
-                  Expanded(flex: 5, child: cart),
+                  Expanded(flex: 5, child: _cartPanel()),
                 ],
               ),
             );
           }
-
-          return Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              children: [
-                Expanded(child: products),
-                const SizedBox(height: 10),
-                SizedBox(
-                  height: math.min(440, constraints.maxHeight * 0.58),
-                  child: cart,
-                ),
-              ],
-            ),
-          );
+          return _narrowBody(constraints);
         },
       ),
     );
   }
 
-  Widget _productPanel() {
-    final scheme = Theme.of(context).colorScheme;
-    return Card(
-      margin: EdgeInsets.zero,
-      clipBehavior: Clip.antiAlias,
-      child: Column(
+  /// Working offline is normal for this app, so it is shown as a quiet
+  /// status, not as an error-looking chip.
+  Widget _localBadge() {
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    return Tooltip(
+      message: 'Works without internet. Sales are saved on this device.',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: TextField(
-              controller: _search,
-              decoration: InputDecoration(
-                labelText: 'Search products',
-                hintText: 'Name, SKU or barcode',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _search.text.isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: 'Clear search',
-                        onPressed: _search.clear,
-                        icon: const Icon(Icons.close),
-                      ),
-                border: const OutlineInputBorder(),
-              ),
-            ),
-          ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Text(_error!, style: TextStyle(color: scheme.error)),
-            ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Row(
-              children: [
-                Text(
-                  'Products',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const Spacer(),
-                Text('${_products.length} found'),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _products.isEmpty
-                ? const Center(
-                    child: Text('No products found. Add products first.'),
-                  )
-                : ListView.separated(
-                    itemCount: _products.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final product = _products[index];
-                      final stock = _stockByProduct[product.id] ?? 0;
-                      return ListTile(
-                        title: Text(
-                          product.name,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text(
-                          'SKU: ${product.sku}  |  Stock: ${PosFormat.plain(stock)}',
-                          style: stock <= 0
-                              ? TextStyle(color: scheme.error)
-                              : null,
-                        ),
-                        leading: const CircleAvatar(
-                          child: Icon(Icons.inventory_2_outlined),
-                        ),
-                        trailing: Text(
-                          'Rs ${PosFormat.money(product.salePriceE4)}',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        onTap: () => _add(product),
-                      );
-                    },
-                  ),
+          Icon(Icons.offline_pin_outlined, size: 18, color: muted),
+          const SizedBox(width: 4),
+          Text(
+            'Local',
+            style: Theme.of(context).textTheme.labelMedium
+                ?.copyWith(color: muted),
           ),
         ],
       ),
     );
   }
 
-  Widget _cartPanel() {
+  Widget _searchField() {
+    return TextField(
+      controller: _search,
+      enabled: !_checkoutLocked,
+      decoration: InputDecoration(
+        labelText: 'Search products',
+        hintText: 'Name, SKU or barcode',
+        prefixIcon: const Icon(Icons.search),
+        suffixIcon: _search.text.isEmpty
+            ? null
+            : IconButton(
+                tooltip: 'Clear search',
+                onPressed: _checkoutLocked ? null : _search.clear,
+                icon: const Icon(Icons.close),
+              ),
+        isDense: true,
+        border: const OutlineInputBorder(),
+      ),
+    );
+  }
+
+  Widget _productTile(CatalogProduct product) {
+    final scheme = Theme.of(context).colorScheme;
+    final stock = _stockByProduct[product.id] ?? 0;
+    return ListTile(
+      title: Text(product.name, maxLines: 2, overflow: TextOverflow.ellipsis),
+      subtitle: Text(
+        'SKU: ${product.sku}  |  Stock: ${PosFormat.plain(stock)}',
+        style: stock <= 0 ? TextStyle(color: scheme.error) : null,
+      ),
+      leading: const CircleAvatar(child: Icon(Icons.inventory_2_outlined)),
+      trailing: Text(
+        'Rs ${PosFormat.money(product.salePriceE4)}',
+        style: const TextStyle(fontWeight: FontWeight.bold),
+      ),
+      onTap: _checkoutLocked ? null : () => _add(product),
+    );
+  }
+
+  Widget _productHeaderRow() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Row(
+        children: [
+          Text('Products', style: Theme.of(context).textTheme.titleMedium),
+          const Spacer(),
+          Text('${_products.length} found'),
+        ],
+      ),
+    );
+  }
+
+  Widget _cartHeaderRow() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
+      child: Row(
+        children: [
+          const Icon(Icons.shopping_cart_outlined),
+          const SizedBox(width: 8),
+          Text('Current sale', style: Theme.of(context).textTheme.titleMedium),
+          const Spacer(),
+          TextButton(
+            onPressed: _checkoutLocked || _cart.isEmpty ? null : () => setState(_clearSale),
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _cartLineTile(_CartLine line) {
+    final lineTotal = _gross(line) - line.lineDiscountE4;
+    return ListTile(
+      dense: true,
+      onTap: _checkoutLocked ? null : () => _editLine(line),
+      title: Text(
+        line.product.name,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Text(
+        '${PosFormat.plain(line.quantityE4)} \u00D7 '
+        'Rs ${PosFormat.money(line.product.salePriceE4)}'
+        '${line.lineDiscountE4 > 0 ? '  (-${PosFormat.money(line.lineDiscountE4)})' : ''}'
+        '  =  Rs ${PosFormat.money(lineTotal)}',
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: 'Decrease quantity',
+            onPressed: _checkoutLocked ? null : () => _changeQuantity(line.product.id, -10000),
+            icon: const Icon(Icons.remove_circle_outline),
+          ),
+          Text(PosFormat.plain(line.quantityE4)),
+          IconButton(
+            tooltip: 'Increase quantity',
+            onPressed: _checkoutLocked ? null : () => _changeQuantity(line.product.id, 10000),
+            icon: const Icon(Icons.add_circle_outline),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _checkoutButton() {
+    final priced = _price();
+    return FilledButton.icon(
+      onPressed: _saving || _cart.isEmpty || priced.error != null
+          ? null
+          : _checkout,
+      icon: _saving
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.point_of_sale),
+      label: Text(_saving ? 'Saving sale...' : (_checkoutOutcomeUncertain ? 'Retry same sale' : 'Complete sale')),
+    );
+  }
+
+  /// Subtotal, discount, tax, total, payment, cash received and cashier.
+  /// It has no scroll view of its own: the caller decides how it scrolls.
+  Widget _paymentSection() {
     final scheme = Theme.of(context).colorScheme;
     final priced = _price();
     final pricing = priced.pricing;
@@ -628,29 +740,323 @@ class _PosScreenState extends State<PosScreen> {
       }
     }
 
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _totalRow('Subtotal', pricing?.subtotalE4 ?? 0),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _discount,
+                enabled: !_checkoutLocked,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: InputDecoration(
+                  labelText: _discountPercent
+                      ? 'Discount (%)'
+                      : 'Discount (Rs)',
+                  isDense: true,
+                  border: const OutlineInputBorder(),
+                ),
+                onChanged: (_) => setState(_syncPaid),
+              ),
+            ),
+            const SizedBox(width: 8),
+            SegmentedButton<bool>(
+              segments: const <ButtonSegment<bool>>[
+                ButtonSegment<bool>(value: false, label: Text('Rs')),
+                ButtonSegment<bool>(value: true, label: Text('%')),
+              ],
+              selected: <bool>{_discountPercent},
+              showSelectedIcon: false,
+              onSelectionChanged: _checkoutLocked ? null : (selection) => setState(() {
+                _discountPercent = selection.first;
+                _syncPaid();
+              }),
+            ),
+          ],
+        ),
+        if (_discount.text.trim().isNotEmpty) ...[
+          const SizedBox(height: 8),
+          TextField(
+            controller: _discountReason,
+            enabled: !_checkoutLocked,
+            inputFormatters: [LengthLimitingTextInputFormatter(120)],
+            decoration: const InputDecoration(
+              labelText: 'Discount reason (optional)',
+              isDense: true,
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+        if (pricing != null && pricing.discountE4 > 0) ...[
+          const SizedBox(height: 8),
+          _totalRow('Discount', pricing.discountE4, prefix: '-'),
+        ],
+        if (pricing != null && _config.taxRateBp > 0) ...[
+          const SizedBox(height: 4),
+          _totalRow(
+            'Tax (${PosPricing.percentLabel(_config.taxRateBp)})',
+            pricing.taxE4,
+          ),
+        ],
+        if (priced.error != null) ...[
+          const SizedBox(height: 6),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(priced.error!, style: TextStyle(color: scheme.error)),
+          ),
+        ],
+        const SizedBox(height: 8),
+        _totalRow('TOTAL', total, bold: true),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            const Expanded(child: Text('Payment method')),
+            DropdownButton<String>(
+              value: _paymentMethod,
+              items: const [
+                DropdownMenuItem(value: 'Cash', child: Text('Cash')),
+                DropdownMenuItem(value: 'Card', child: Text('Card')),
+                DropdownMenuItem(value: 'Bank', child: Text('Bank')),
+                DropdownMenuItem(value: 'Other', child: Text('Other')),
+              ],
+              onChanged: _checkoutLocked
+                  ? null
+                  : (value) {
+                      if (value != null) {
+                        setState(() => _paymentMethod = value);
+                      }
+                    },
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Expanded(child: Text(isCash ? 'Cash received' : 'Amount received')),
+            SizedBox(
+              width: 150,
+              child: TextField(
+                controller: _paid,
+                enabled: !_checkoutLocked,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                textAlign: TextAlign.end,
+                decoration: const InputDecoration(
+                  prefixText: 'Rs ',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (_) => setState(() => _paymentEdited = true),
+              ),
+            ),
+          ],
+        ),
+        if (overpaid)
+          Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              'More than the total',
+              style: TextStyle(color: scheme.error),
+            ),
+          ),
+        if (change != null) ...[
+          const SizedBox(height: 6),
+          _totalRow('Change', change, bold: true, color: Colors.green.shade700),
+        ],
+        if (due != null) ...[
+          const SizedBox(height: 6),
+          _totalRow('Remaining due', due, color: scheme.error),
+        ],
+        const SizedBox(height: 10),
+        TextField(
+          controller: _cashier,
+          enabled: !_checkoutLocked,
+          decoration: const InputDecoration(
+            labelText: 'Cashier name',
+            isDense: true,
+            border: OutlineInputBorder(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Phone layout: everything scrolls together, and the total with the
+  /// Complete sale button stays pinned above the keyboard.
+  Widget _narrowBody(BoxConstraints constraints) {
+    final scheme = Theme.of(context).colorScheme;
+    final total = _price().pricing?.totalE4 ?? 0;
+    final listMax = math.max(
+      150.0,
+      math.min(320.0, constraints.maxHeight * 0.38),
+    );
+    return Column(
+      children: [
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.all(12),
+            children: [
+              Card(
+                margin: EdgeInsets.zero,
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: _searchField(),
+                    ),
+                    if (_error != null)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                        child: Text(
+                          _error!,
+                          style: TextStyle(color: scheme.error),
+                        ),
+                      ),
+                    _productHeaderRow(),
+                    const Divider(height: 1),
+                    if (_loading)
+                      const Padding(
+                        padding: EdgeInsets.all(20),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (_products.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(20),
+                        child: Center(
+                          child: Text('No products found. Add products first.'),
+                        ),
+                      )
+                    else
+                      ConstrainedBox(
+                        constraints: BoxConstraints(maxHeight: listMax),
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: _products.length,
+                          separatorBuilder: (_, _) => const Divider(height: 1),
+                          itemBuilder: (context, index) =>
+                              _productTile(_products[index]),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              Card(
+                margin: EdgeInsets.zero,
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _cartHeaderRow(),
+                    const Divider(height: 1),
+                    if (_cart.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Center(
+                          child: Text('Your cart is empty. Tap a product.'),
+                        ),
+                      )
+                    else
+                      for (final line in _cart.values) _cartLineTile(line),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              Card(
+                margin: EdgeInsets.zero,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: _paymentSection(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Material(
+          elevation: 8,
+          color: scheme.surface,
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              child: Row(
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Total',
+                        style: Theme.of(context).textTheme.labelMedium,
+                      ),
+                      Text(
+                        'Rs ${PosFormat.money(total)}',
+                        style: Theme.of(context).textTheme.titleLarge
+                            ?.copyWith(fontWeight: FontWeight.w800),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(child: _checkoutButton()),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Wide layout (desktop and tablets): products on the left, sale on the right.
+  Widget _productPanel() {
+    final scheme = Theme.of(context).colorScheme;
     return Card(
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
-            child: Row(
-              children: [
-                const Icon(Icons.shopping_cart_outlined),
-                const SizedBox(width: 8),
-                Text(
-                  'Current sale',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const Spacer(),
-                TextButton(
-                  onPressed: _cart.isEmpty ? null : () => setState(_clearSale),
-                  child: const Text('Clear'),
-                ),
-              ],
+          Padding(padding: const EdgeInsets.all(12), child: _searchField()),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text(_error!, style: TextStyle(color: scheme.error)),
             ),
+          _productHeaderRow(),
+          const Divider(height: 1),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _products.isEmpty
+                ? const Center(
+                    child: Text('No products found. Add products first.'),
+                  )
+                : ListView.separated(
+                    itemCount: _products.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) =>
+                        _productTile(_products[index]),
+                  ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _cartPanel() {
+    return Card(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          _cartHeaderRow(),
           const Divider(height: 1),
           Expanded(
             flex: 2,
@@ -658,39 +1064,7 @@ class _PosScreenState extends State<PosScreen> {
                 ? const Center(child: Text('Your cart is empty'))
                 : ListView(
                     children: [
-                      for (final line in _cart.values)
-                        ListTile(
-                          dense: true,
-                          onTap: () => _editLine(line),
-                          title: Text(
-                            line.product.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle: Text(
-                            '${PosFormat.plain(line.quantityE4)} \u00D7 '
-                            'Rs ${PosFormat.money(line.product.salePriceE4)}'
-                            '${line.lineDiscountE4 > 0 ? '  (-${PosFormat.money(line.lineDiscountE4)})' : ''}',
-                          ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                tooltip: 'Decrease quantity',
-                                onPressed: () =>
-                                    _changeQuantity(line.product.id, -10000),
-                                icon: const Icon(Icons.remove_circle_outline),
-                              ),
-                              Text(PosFormat.plain(line.quantityE4)),
-                              IconButton(
-                                tooltip: 'Increase quantity',
-                                onPressed: () =>
-                                    _changeQuantity(line.product.id, 10000),
-                                icon: const Icon(Icons.add_circle_outline),
-                              ),
-                            ],
-                          ),
-                        ),
+                      for (final line in _cart.values) _cartLineTile(line),
                     ],
                   ),
           ),
@@ -701,173 +1075,9 @@ class _PosScreenState extends State<PosScreen> {
               padding: const EdgeInsets.all(12),
               child: Column(
                 children: [
-                  _totalRow('Subtotal', pricing?.subtotalE4 ?? 0),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _discount,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: InputDecoration(
-                            labelText: _discountPercent
-                                ? 'Discount (%)'
-                                : 'Discount (Rs)',
-                            isDense: true,
-                            border: const OutlineInputBorder(),
-                          ),
-                          onChanged: (_) => setState(_syncPaid),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      SegmentedButton<bool>(
-                        segments: const <ButtonSegment<bool>>[
-                          ButtonSegment<bool>(value: false, label: Text('Rs')),
-                          ButtonSegment<bool>(value: true, label: Text('%')),
-                        ],
-                        selected: <bool>{_discountPercent},
-                        showSelectedIcon: false,
-                        onSelectionChanged: (selection) => setState(() {
-                          _discountPercent = selection.first;
-                          _syncPaid();
-                        }),
-                      ),
-                    ],
-                  ),
-                  if (_discount.text.trim().isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _discountReason,
-                      inputFormatters: [LengthLimitingTextInputFormatter(120)],
-                      decoration: const InputDecoration(
-                        labelText: 'Discount reason (optional)',
-                        isDense: true,
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                  ],
-                  if (pricing != null && pricing.discountE4 > 0) ...[
-                    const SizedBox(height: 8),
-                    _totalRow('Discount', pricing.discountE4, prefix: '-'),
-                  ],
-                  if (pricing != null && _config.taxRateBp > 0) ...[
-                    const SizedBox(height: 4),
-                    _totalRow(
-                      'Tax (${PosPricing.percentLabel(_config.taxRateBp)})',
-                      pricing.taxE4,
-                    ),
-                  ],
-                  if (priced.error != null) ...[
-                    const SizedBox(height: 6),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        priced.error!,
-                        style: TextStyle(color: scheme.error),
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  _totalRow('TOTAL', total, bold: true),
+                  _paymentSection(),
                   const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      const Expanded(child: Text('Payment method')),
-                      DropdownButton<String>(
-                        value: _paymentMethod,
-                        items: const [
-                          DropdownMenuItem(value: 'Cash', child: Text('Cash')),
-                          DropdownMenuItem(value: 'Card', child: Text('Card')),
-                          DropdownMenuItem(value: 'Bank', child: Text('Bank')),
-                          DropdownMenuItem(
-                            value: 'Other',
-                            child: Text('Other'),
-                          ),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) {
-                            setState(() => _paymentMethod = value);
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          isCash ? 'Cash received' : 'Amount received',
-                        ),
-                      ),
-                      SizedBox(
-                        width: 140,
-                        child: TextField(
-                          controller: _paid,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          textAlign: TextAlign.end,
-                          decoration: const InputDecoration(
-                            prefixText: 'Rs ',
-                            isDense: true,
-                            border: OutlineInputBorder(),
-                          ),
-                          onChanged: (_) =>
-                              setState(() => _paymentEdited = true),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (overpaid)
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Text(
-                        'More than the total',
-                        style: TextStyle(color: scheme.error),
-                      ),
-                    ),
-                  if (change != null) ...[
-                    const SizedBox(height: 6),
-                    _totalRow(
-                      'Change',
-                      change,
-                      bold: true,
-                      color: Colors.green.shade700,
-                    ),
-                  ],
-                  if (due != null) ...[
-                    const SizedBox(height: 6),
-                    _totalRow('Remaining due', due, color: scheme.error),
-                  ],
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _cashier,
-                    decoration: const InputDecoration(
-                      labelText: 'Cashier',
-                      isDense: true,
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed:
-                          _saving || _cart.isEmpty || priced.error != null
-                          ? null
-                          : _checkout,
-                      icon: _saving
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.point_of_sale),
-                      label: Text(_saving ? 'Saving sale...' : 'Complete sale'),
-                    ),
-                  ),
+                  SizedBox(width: double.infinity, child: _checkoutButton()),
                   const SizedBox(height: 4),
                   Text(
                     'Stock is validated when the sale is saved.',

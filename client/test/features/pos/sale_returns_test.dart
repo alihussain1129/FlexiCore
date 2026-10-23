@@ -52,6 +52,7 @@ Future<void> _seed(AppDatabase db) async {
 
 void main() {
   late AppDatabase db;
+  var mainDbClosed = false;
   late LocalPosRepository pos;
   late LocalReturnsRepository returns;
   late LocalPosSettingsRepository settings;
@@ -60,6 +61,7 @@ void main() {
   var n = 0;
 
   setUp(() async {
+    mainDbClosed = false;
     n = 0;
     now = DateTime.utc(2026, 10, 22, 10);
     db = AppDatabase(NativeDatabase.memory());
@@ -70,7 +72,11 @@ void main() {
     history = LocalSalesHistoryRepository(db, companyId: _company);
   });
 
-  tearDown(() => db.close());
+  tearDown(() async {
+    if (!mainDbClosed) {
+      await db.close();
+    }
+  });
 
   Future<PosReceipt> sell({
     int qtyE4 = 30000,
@@ -458,6 +464,9 @@ void main() {
         )
         .get();
     expect(fresh.length, 10);
+
+    await db.close();
+    mainDbClosed = true;
 
     final old = AppDatabase(
       NativeDatabase.memory(
