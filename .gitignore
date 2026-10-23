@@ -507,3 +507,7 @@ issued*.jsonl
 activation-engine-inspection*
 flexicore-owner-2026-01.json
 client/flutter_*.png
+*.failed-*
+_inspection/
+FlexiCore-POS-Review-*.zip
+stock-entry-inspection.txt
