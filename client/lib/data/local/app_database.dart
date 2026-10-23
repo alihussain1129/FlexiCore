@@ -2,6 +2,7 @@
 import 'package:drift/drift.dart';
 
 import 'inventory_schema.dart';
+import 'sales_schema.dart';
 
 part 'app_database.g.dart';
 
@@ -146,6 +147,80 @@ class StockBalances extends Table {
   Set<Column> get primaryKey => {companyId, productId, warehouseId};
 }
 
+@DataClassName('SaleRow')
+class Sales extends Table {
+  TextColumn get id => text()();
+  TextColumn get companyId => text()();
+  TextColumn get receiptNumber => text()();
+  TextColumn get clientRequestId => text()();
+  TextColumn get warehouseId => text().references(Warehouses, #id)();
+  IntColumn get subtotalE4 => integer()();
+  IntColumn get discountE4 => integer().withDefault(const Constant(0))();
+  IntColumn get taxE4 => integer().withDefault(const Constant(0))();
+  IntColumn get totalE4 => integer()();
+  IntColumn get amountPaidE4 => integer()();
+  TextColumn get status => text().withDefault(const Constant('completed'))();
+  IntColumn get changeE4 => integer().withDefault(const Constant(0))();
+  IntColumn get taxRateBp => integer().withDefault(const Constant(0))();
+  TextColumn get discountReason => text().nullable()();
+  TextColumn get paymentMethod => text()();
+  DateTimeColumn get createdAt => dateTime()();
+  TextColumn get createdBy => text()();
+  TextColumn get originDeviceId => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+@DataClassName('SaleLineRow')
+class SaleLines extends Table {
+  TextColumn get id => text()();
+  TextColumn get saleId => text().references(Sales, #id)();
+  TextColumn get productId => text().references(Products, #id)();
+  TextColumn get skuSnapshot => text()();
+  TextColumn get nameSnapshot => text()();
+  IntColumn get quantityE4 => integer()();
+  IntColumn get unitPriceE4 => integer()();
+  IntColumn get discountE4 => integer().withDefault(const Constant(0))();
+  IntColumn get lineTotalE4 => integer()();
+  IntColumn get taxE4 => integer().withDefault(const Constant(0))();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+@DataClassName('SalePaymentRow')
+class SalePayments extends Table {
+  TextColumn get id => text()();
+  TextColumn get saleId => text().references(Sales, #id)();
+  IntColumn get amountE4 => integer()();
+  TextColumn get method => text()();
+  DateTimeColumn get receivedAt => dateTime()();
+  TextColumn get reference => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+/// POS settings. One row per local database (same pattern as the business
+/// profile). Rates are basis points: 1500 is 15%.
+@DataClassName('PosSettingsRow')
+class PosSettings extends Table {
+  TextColumn get id => text().check(id.equals('pos-settings'))();
+  TextColumn get companyId => text()();
+  IntColumn get taxRateBp => integer()
+      .withDefault(const Constant(0))
+      .check(taxRateBp.isBetweenValues(0, 10000))();
+  IntColumn get maxDiscountBp => integer()
+      .withDefault(const Constant(10000))
+      .check(maxDiscountBp.isBetweenValues(0, 10000))();
+  TextColumn get receiptFooter => text().nullable()();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 @DriftDatabase(
   tables: [
     Units,
@@ -154,12 +229,16 @@ class StockBalances extends Table {
     Warehouses,
     StockMovements,
     StockBalances,
+    Sales,
+    SaleLines,
+    SalePayments,
+    PosSettings,
   ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.executor);
 
-  static const int currentSchemaVersion = 3;
+  static const int currentSchemaVersion = 5;
 
   @override
   int get schemaVersion => currentSchemaVersion;
@@ -188,6 +267,12 @@ class AppDatabase extends _$AppDatabase {
       for (final statement in kInventorySchemaStatements) {
         await customStatement(statement);
       }
+      for (final statement in kSalesSchemaStatements) {
+        await customStatement(statement);
+      }
+      for (final statement in kSalesIntegrityStatements) {
+        await customStatement(statement);
+      }
     },
     // Forward-only. Future schema versions add a step here per version.
     // Never drop or recreate user tables to "fix" a migration.
@@ -203,6 +288,35 @@ class AppDatabase extends _$AppDatabase {
         await m.createTable(stockMovements);
         await m.createTable(stockBalances);
         for (final statement in kInventorySchemaStatements) {
+          await customStatement(statement);
+        }
+      }
+
+      // v3 -> v4: add sales without dropping or rewriting existing data.
+      if (from < 4) {
+        await m.createTable(sales);
+        await m.createTable(saleLines);
+        await m.createTable(salePayments);
+        for (final statement in kSalesSchemaStatements) {
+          await customStatement(statement);
+        }
+      }
+
+      // v4 -> v5: tax, discount detail, change, sale status, POS settings and
+      // integrity triggers. Existing sales keep their numbers; new columns get
+      // safe defaults.
+      if (from < 5) {
+        // A database older than v4 just had sales created from the current
+        // definition (it already has these columns), so only v4 needs them added.
+        if (from >= 4) {
+          await m.addColumn(sales, sales.status);
+          await m.addColumn(sales, sales.changeE4);
+          await m.addColumn(sales, sales.taxRateBp);
+          await m.addColumn(sales, sales.discountReason);
+          await m.addColumn(saleLines, saleLines.taxE4);
+        }
+        await m.createTable(posSettings);
+        for (final statement in kSalesIntegrityStatements) {
           await customStatement(statement);
         }
       }

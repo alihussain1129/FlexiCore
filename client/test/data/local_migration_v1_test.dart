@@ -101,7 +101,7 @@ void main() {
     final db = await openAppDatabase(directory: dir);
 
     final version = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(version.read<int>('user_version'), 3);
+    expect(version.read<int>('user_version'), 5);
 
     final units = await db.select(db.units).get();
     expect(units.map((u) => u.id).toSet(), {'u-pcs', 'u-old'});
@@ -177,7 +177,7 @@ void main() {
     await reopened.close();
   });
 
-  test('currentSchemaVersion is 3', () {
-    expect(AppDatabase.currentSchemaVersion, 3);
+  test('currentSchemaVersion is 5', () {
+    expect(AppDatabase.currentSchemaVersion, 5);
   });
 }

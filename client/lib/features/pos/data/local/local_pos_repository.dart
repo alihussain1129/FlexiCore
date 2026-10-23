@@ -2,6 +2,8 @@ import 'package:drift/drift.dart';
 
 import '../../../../core/ids.dart';
 import '../../../../data/local/app_database.dart';
+import '../../domain/pos_pricing.dart';
+import 'local_pos_settings_repository.dart';
 
 class PosException implements Exception {
   const PosException(this.message);
@@ -29,14 +31,31 @@ class PosCheckoutRequest {
     required this.amountPaidE4,
     required this.createdBy,
     this.warehouseId,
+    this.orderDiscountE4 = 0,
+    this.lineDiscountsE4 = const <String, int>{},
+    this.discountReason,
+    this.cashTenderedE4,
   });
 
   final String clientRequestId;
   final List<PosCartItem> items;
   final String paymentMethod;
+
+  /// The amount applied to this sale. It can never be more than the total.
   final int amountPaidE4;
   final String createdBy;
   final String? warehouseId;
+
+  /// Order-level discount as a fixed E4 amount.
+  final int orderDiscountE4;
+
+  /// Line-level discounts as fixed E4 amounts, keyed by product id.
+  final Map<String, int> lineDiscountsE4;
+  final String? discountReason;
+
+  /// Cash handed over by the customer. Change is this minus [amountPaidE4].
+  /// Only allowed for the Cash method.
+  final int? cashTenderedE4;
 }
 
 class PosReceiptLine {
@@ -47,6 +66,8 @@ class PosReceiptLine {
     required this.quantityE4,
     required this.unitPriceE4,
     required this.lineTotalE4,
+    this.discountE4 = 0,
+    this.taxE4 = 0,
   });
 
   final String productId;
@@ -54,7 +75,11 @@ class PosReceiptLine {
   final String name;
   final int quantityE4;
   final int unitPriceE4;
+
+  /// Line total after discount and before tax.
   final int lineTotalE4;
+  final int discountE4;
+  final int taxE4;
 }
 
 class PosReceipt {
@@ -68,6 +93,11 @@ class PosReceipt {
     required this.amountPaidE4,
     required this.paymentMethod,
     required this.lines,
+    this.discountE4 = 0,
+    this.taxE4 = 0,
+    this.changeE4 = 0,
+    this.taxRateBp = 0,
+    this.status = 'completed',
   });
 
   final String id;
@@ -79,6 +109,11 @@ class PosReceipt {
   final int amountPaidE4;
   final String paymentMethod;
   final List<PosReceiptLine> lines;
+  final int discountE4;
+  final int taxE4;
+  final int changeE4;
+  final int taxRateBp;
+  final String status;
 }
 
 /// Offline checkout repository.
@@ -105,9 +140,12 @@ class LocalPosRepository {
     final requestId = request.clientRequestId.trim();
     final method = request.paymentMethod.trim();
     final cashier = request.createdBy.trim();
+    final reason = request.discountReason?.trim();
 
     if (requestId.isEmpty || requestId.length > 80) {
-      throw const PosException('Checkout request ID must be 1–80 characters.');
+      throw const PosException(
+        'Checkout request ID must be 1\u201380 characters.',
+      );
     }
     if (method.isEmpty || method.length > 40) {
       throw const PosException('Enter a valid payment method.');
@@ -136,6 +174,34 @@ class LocalPosRepository {
       }
     }
 
+    if (request.orderDiscountE4 < 0) {
+      throw const PosException('Discount cannot be negative.');
+    }
+    for (final entry in request.lineDiscountsE4.entries) {
+      if (entry.value < 0) {
+        throw const PosException('Discount cannot be negative.');
+      }
+      if (!seen.contains(entry.key)) {
+        throw const PosException(
+          'A line discount refers to a product that is not in the cart.',
+        );
+      }
+    }
+    if (reason != null && reason.length > 120) {
+      throw const PosException('The discount reason is too long.');
+    }
+
+    final tendered = request.cashTenderedE4;
+    if (tendered != null) {
+      if (method.toLowerCase() != 'cash') {
+        throw const PosException('Change can only be given for cash payments.');
+      }
+      if (tendered < request.amountPaidE4) {
+        throw const PosException('Cash received is less than the amount paid.');
+      }
+    }
+    final changeE4 = tendered == null ? 0 : tendered - request.amountPaidE4;
+
     return _db.transaction(() async {
       // Retries with the same request ID return the original receipt. They
       // never write a second sale or deduct stock a second time.
@@ -152,14 +218,12 @@ class LocalPosRepository {
           existing,
           request: request,
           paymentMethod: method,
+          changeE4: changeE4,
         );
       }
 
       final warehouse = await _resolveWarehouse(request.warehouseId);
-      final prepared =
-          <({PosCartItem item, ProductRow product, int lineTotalE4})>[];
-
-      var subtotalE4 = 0;
+      final prepared = <({PosCartItem item, ProductRow product})>[];
 
       // Read and validate the entire cart before writing any sale records.
       for (final item in request.items) {
@@ -177,22 +241,42 @@ class LocalPosRepository {
             'Product ${item.productId} was not found or is inactive.',
           );
         }
-
-        final lineTotal = _lineTotalE4(item.quantityE4, product.salePriceE4);
-
-        if (lineTotal > 0x7fffffffffffffff - subtotalE4) {
-          throw const PosException('Cart total is too large.');
-        }
-
-        subtotalE4 += lineTotal;
-        prepared.add((item: item, product: product, lineTotalE4: lineTotal));
+        prepared.add((item: item, product: product));
       }
 
-      const discountE4 = 0;
-      const taxE4 = 0;
-      final totalE4 = subtotalE4 - discountE4 + taxE4;
+      final config = await LocalPosSettingsRepository(
+        _db,
+        companyId: companyId,
+      ).load();
 
-      if (request.amountPaidE4 > totalE4) {
+      final PosPricing pricing;
+      try {
+        pricing = PosPricing.calculate(
+          lines: [
+            for (final entry in prepared)
+              PosPriceInput(
+                quantityE4: entry.item.quantityE4,
+                unitPriceE4: entry.product.salePriceE4,
+                lineDiscountE4:
+                    request.lineDiscountsE4[entry.item.productId] ?? 0,
+              ),
+          ],
+          orderDiscountE4: request.orderDiscountE4,
+          taxRateBp: config.taxRateBp,
+        );
+      } on PosPricingException catch (e) {
+        throw PosException(e.message);
+      }
+
+      if (pricing.discountE4 * 10000 >
+          pricing.subtotalE4 * config.maxDiscountBp) {
+        throw PosException(
+          'Discount exceeds the allowed maximum of '
+          '${PosPricing.percentLabel(config.maxDiscountBp)}.',
+        );
+      }
+
+      if (request.amountPaidE4 > pricing.totalE4) {
         throw const PosException('Payment cannot exceed the sale total.');
       }
 
@@ -231,20 +315,26 @@ class LocalPosRepository {
               receiptNumber: receiptNumber,
               clientRequestId: requestId,
               warehouseId: warehouse.id,
-              subtotalE4: subtotalE4,
-              discountE4: const Value(discountE4),
-              taxE4: const Value(taxE4),
-              totalE4: totalE4,
+              subtotalE4: pricing.subtotalE4,
+              discountE4: Value(pricing.discountE4),
+              taxE4: Value(pricing.taxE4),
+              totalE4: pricing.totalE4,
               amountPaidE4: request.amountPaidE4,
               paymentMethod: method,
               createdAt: now,
               createdBy: cashier,
               originDeviceId: Value(deviceId),
+              changeE4: Value(changeE4),
+              taxRateBp: Value(config.taxRateBp),
+              discountReason: Value(
+                reason == null || reason.isEmpty ? null : reason,
+              ),
             ),
           );
 
       for (var index = 0; index < prepared.length; index++) {
         final entry = prepared[index];
+        final priced = pricing.lines[index];
         final movementId = _newId();
 
         await _db
@@ -258,7 +348,9 @@ class LocalPosRepository {
                 nameSnapshot: entry.product.name,
                 quantityE4: entry.item.quantityE4,
                 unitPriceE4: entry.product.salePriceE4,
-                lineTotalE4: entry.lineTotalE4,
+                discountE4: Value(priced.discountE4),
+                lineTotalE4: priced.netE4,
+                taxE4: Value(priced.taxE4),
               ),
             );
 
@@ -317,8 +409,17 @@ class LocalPosRepository {
             ),
           );
 
-      return _receiptForSale(saleId);
+      return receiptForSale(saleId);
     });
+  }
+
+  /// Newest sales first. Use [limit] and [offset] to page through history.
+  Future<List<SaleRow>> recentSales({int limit = 50, int offset = 0}) {
+    final query = _db.select(_db.sales)
+      ..where((s) => s.companyId.equals(companyId))
+      ..orderBy([(s) => OrderingTerm.desc(s.createdAt)])
+      ..limit(limit, offset: offset);
+    return query.get();
   }
 
   Future<WarehouseRow> _resolveWarehouse(String? requestedId) async {
@@ -345,9 +446,16 @@ class LocalPosRepository {
     SaleRow existing, {
     required PosCheckoutRequest request,
     required String paymentMethod,
+    required int changeE4,
   }) async {
+    final requestedDiscountE4 =
+        request.orderDiscountE4 +
+        request.lineDiscountsE4.values.fold<int>(0, (a, b) => a + b);
+
     if (existing.paymentMethod != paymentMethod ||
         existing.amountPaidE4 != request.amountPaidE4 ||
+        existing.discountE4 != requestedDiscountE4 ||
+        existing.changeE4 != changeE4 ||
         (request.warehouseId != null &&
             existing.warehouseId != request.warehouseId)) {
       throw const PosException(
@@ -377,10 +485,10 @@ class LocalPosRepository {
       }
     }
 
-    return _receiptForSale(existing.id);
+    return receiptForSale(existing.id);
   }
 
-  Future<PosReceipt> _receiptForSale(String saleId) async {
+  Future<PosReceipt> receiptForSale(String saleId) async {
     final sale =
         await (_db.select(_db.sales)..where(
               (s) => s.id.equals(saleId) & s.companyId.equals(companyId),
@@ -404,6 +512,11 @@ class LocalPosRepository {
       totalE4: sale.totalE4,
       amountPaidE4: sale.amountPaidE4,
       paymentMethod: sale.paymentMethod,
+      discountE4: sale.discountE4,
+      taxE4: sale.taxE4,
+      changeE4: sale.changeE4,
+      taxRateBp: sale.taxRateBp,
+      status: sale.status,
       lines: rows
           .map(
             (line) => PosReceiptLine(
@@ -413,24 +526,11 @@ class LocalPosRepository {
               quantityE4: line.quantityE4,
               unitPriceE4: line.unitPriceE4,
               lineTotalE4: line.lineTotalE4,
+              discountE4: line.discountE4,
+              taxE4: line.taxE4,
             ),
           )
           .toList(),
     );
-  }
-
-  /// Multiplies E4 quantity by E4 price and rounds to the nearest E4
-  /// currency unit, using integer arithmetic only.
-  int _lineTotalE4(int quantityE4, int unitPriceE4) {
-    if (quantityE4 <= 0 || unitPriceE4 < 0) {
-      throw const PosException('Invalid quantity or price.');
-    }
-
-    final product = quantityE4 * unitPriceE4;
-    if (product < 0 || product > 0x7fffffffffffffff - 5000) {
-      throw const PosException('Line total is too large.');
-    }
-
-    return (product + 5000) ~/ 10000;
   }
 }

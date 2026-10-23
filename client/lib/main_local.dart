@@ -17,6 +17,8 @@ import 'features/overview/overview_screen.dart';
 import 'features/profile/data/local_profile_repository.dart';
 import 'features/profile/presentation/profile_controller.dart';
 import 'features/profile/presentation/profile_setup_screen.dart';
+import 'features/pos/presentation/pos_screen.dart';
+import 'features/pos/presentation/sales_history_screen.dart';
 import 'features/shell/app_shell.dart';
 
 /// Local entry point: runs entirely on the local database and never creates
@@ -119,6 +121,26 @@ class _LocalAppState extends State<_LocalApp> {
             controller: boot.catalog,
             businessName: boot.profile.profile?.businessName,
             actions: [menu()],
+          ),
+        ),
+        ShellDestination(
+          label: 'POS',
+          icon: Icons.point_of_sale_outlined,
+          selectedIcon: Icons.point_of_sale,
+          builder: (context) => PosScreen(
+            db: boot.db,
+            companyId: kLocalCompanyId,
+            businessName: boot.profile.profile?.businessName,
+          ),
+        ),
+        ShellDestination(
+          label: 'Sales',
+          icon: Icons.receipt_long_outlined,
+          selectedIcon: Icons.receipt_long,
+          builder: (context) => SalesHistoryScreen(
+            db: boot.db,
+            companyId: kLocalCompanyId,
+            businessName: boot.profile.profile?.businessName,
           ),
         ),
       ],

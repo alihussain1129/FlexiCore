@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../core/ids.dart';
 import '../../../data/local/app_database.dart';
@@ -9,6 +10,10 @@ import '../../catalog/data/local_catalog_repository.dart';
 import '../../catalog/domain/catalog_domain.dart';
 import '../../inventory/data/local_inventory_repository.dart';
 import '../data/local/local_pos_repository.dart';
+import '../data/local/local_pos_settings_repository.dart';
+import '../domain/pos_format.dart';
+import '../domain/pos_pricing.dart';
+import 'pos_receipt_text.dart';
 
 class PosScreen extends StatefulWidget {
   const PosScreen({
@@ -31,37 +36,42 @@ class _CartLine {
 
   final CatalogProduct product;
   int quantityE4 = 10000;
+  int lineDiscountE4 = 0;
 }
 
 class _PosScreenState extends State<PosScreen> {
   late final LocalCatalogRepository _catalog;
   late final LocalPosRepository _pos;
+  late final LocalPosSettingsRepository _settingsRepo;
 
   final _search = TextEditingController();
   final _paid = TextEditingController(text: '0');
   final _cashier = TextEditingController(text: 'Cashier');
+  final _discount = TextEditingController();
+  final _discountReason = TextEditingController();
   final Map<String, _CartLine> _cart = {};
 
   List<CatalogProduct> _products = [];
   final Map<String, int> _stockByProduct = {};
+  PosConfig _config = PosConfig.defaults;
   String? _warehouseId;
   String? _error;
   String _paymentMethod = 'Cash';
+  bool _discountPercent = false;
   bool _loading = true;
   bool _saving = false;
   bool _paymentEdited = false;
   int _searchVersion = 0;
-
-  int get _totalE4 => _cart.values.fold<int>(
-    0,
-    (sum, line) => sum + _lineTotal(line.quantityE4, line.product.salePriceE4),
-  );
 
   @override
   void initState() {
     super.initState();
     _catalog = LocalCatalogRepository(widget.db, companyId: widget.companyId);
     _pos = LocalPosRepository(widget.db, companyId: widget.companyId);
+    _settingsRepo = LocalPosSettingsRepository(
+      widget.db,
+      companyId: widget.companyId,
+    );
     _search.addListener(_loadProducts);
     _initialize();
   }
@@ -73,6 +83,7 @@ class _PosScreenState extends State<PosScreen> {
         companyId: widget.companyId,
       ).ensureDefaultWarehouse();
 
+      final config = await _settingsRepo.load();
       final warehouse =
           await (widget.db.select(widget.db.warehouses)..where(
                 (w) =>
@@ -84,6 +95,7 @@ class _PosScreenState extends State<PosScreen> {
 
       if (!mounted) return;
       setState(() {
+        _config = config;
         _warehouseId = warehouse?.id;
         _error = warehouse == null
             ? 'No default warehouse found. Configure a warehouse before checkout.'
@@ -142,26 +154,79 @@ class _PosScreenState extends State<PosScreen> {
     }
   }
 
-  int _lineTotal(int quantityE4, int priceE4) =>
-      (quantityE4 * priceE4 + 5000) ~/ 10000;
+  // ---- money maths (same engine the repository uses at checkout) ----
 
-  String _money(int value) {
-    final whole = value.abs() ~/ 10000;
-    final fraction = (value.abs() % 10000).toString().padLeft(4, '0');
-    final decimals = fraction.replaceFirst(RegExp(r'0+$'), '');
-    return '${value < 0 ? '-' : ''}$whole${decimals.isEmpty ? '' : '.$decimals'}';
-  }
+  int _gross(_CartLine line) =>
+      (line.quantityE4 * line.product.salePriceE4 + 5000) ~/ 10000;
 
-  int _parseMoney(String input) {
-    final match = RegExp(r'^(\d+)(?:\.(\d{1,4}))?$').firstMatch(input.trim());
-    if (match == null) {
-      throw const PosException(
-        'Enter a valid amount with up to four decimal places.',
+  /// The order discount in E4, or -1 when the text is not a valid number.
+  int _orderDiscountE4() {
+    final raw = _discount.text.trim();
+    if (raw.isEmpty) return 0;
+    if (_discountPercent) {
+      final bp = PosFormat.parsePercentBp(raw);
+      if (bp == null) return -1;
+      final afterLines = _cart.values.fold<int>(
+        0,
+        (sum, line) => sum + _gross(line) - line.lineDiscountE4,
       );
+      return PosPricing.percentOfE4(afterLines, bp);
     }
-    return int.parse(match.group(1)!) * 10000 +
-        int.parse((match.group(2) ?? '').padRight(4, '0'));
+    return PosFormat.parseE4(raw) ?? -1;
   }
+
+  ({PosPricing? pricing, String? error}) _price() {
+    if (_cart.isEmpty) return (pricing: null, error: null);
+    final discount = _orderDiscountE4();
+    if (discount < 0) return (pricing: null, error: 'Enter a valid discount.');
+    try {
+      final pricing = PosPricing.calculate(
+        lines: [
+          for (final line in _cart.values)
+            PosPriceInput(
+              quantityE4: line.quantityE4,
+              unitPriceE4: line.product.salePriceE4,
+              lineDiscountE4: line.lineDiscountE4,
+            ),
+        ],
+        orderDiscountE4: discount,
+        taxRateBp: _config.taxRateBp,
+      );
+      if (pricing.discountE4 * 10000 >
+          pricing.subtotalE4 * _config.maxDiscountBp) {
+        return (
+          pricing: pricing,
+          error:
+              'Discount is above the allowed maximum of '
+              '${PosPricing.percentLabel(_config.maxDiscountBp)}.',
+        );
+      }
+      return (pricing: pricing, error: null);
+    } on PosPricingException catch (e) {
+      return (pricing: null, error: e.message);
+    }
+  }
+
+  void _syncPaid() {
+    if (_paymentEdited) return;
+    final total = _price().pricing?.totalE4 ?? 0;
+    _paid.text = PosFormat.plain(total);
+  }
+
+  void _clampDiscount(_CartLine line) {
+    final gross = _gross(line);
+    if (line.lineDiscountE4 > gross) line.lineDiscountE4 = gross;
+  }
+
+  void _clearSale() {
+    _cart.clear();
+    _discount.clear();
+    _discountReason.clear();
+    _paymentEdited = false;
+    _paid.text = '0';
+  }
+
+  // ---- cart actions ----
 
   void _add(CatalogProduct product) {
     final availableE4 = _stockByProduct[product.id] ?? 0;
@@ -173,7 +238,7 @@ class _PosScreenState extends State<PosScreen> {
     if (currentE4 + 10000 > availableE4) {
       _message(
         'Not enough stock for ${product.name}. '
-        'Available: ${_money(availableE4)}.',
+        'Available: ${PosFormat.plain(availableE4)}.',
       );
       return;
     }
@@ -184,7 +249,7 @@ class _PosScreenState extends State<PosScreen> {
       } else {
         line.quantityE4 += 10000;
       }
-      if (!_paymentEdited) _paid.text = _money(_totalE4);
+      _syncPaid();
     });
   }
 
@@ -196,7 +261,7 @@ class _PosScreenState extends State<PosScreen> {
     if (delta > 0 && next > availableE4) {
       _message(
         'Not enough stock for ${line.product.name}. '
-        'Available: ${_money(availableE4)}.',
+        'Available: ${PosFormat.plain(availableE4)}.',
       );
       return;
     }
@@ -205,9 +270,52 @@ class _PosScreenState extends State<PosScreen> {
         _cart.remove(id);
       } else {
         line.quantityE4 = next;
+        _clampDiscount(line);
       }
-      if (!_paymentEdited) _paid.text = _money(_totalE4);
+      _syncPaid();
     });
+  }
+
+  Future<void> _editLine(_CartLine line) async {
+    final result = await showDialog<_LineEdit>(
+      context: context,
+      builder: (context) => _LineEditDialog(
+        name: line.product.name,
+        quantityE4: line.quantityE4,
+        discountE4: line.lineDiscountE4,
+        availableE4: _stockByProduct[line.product.id] ?? 0,
+        unitPriceE4: line.product.salePriceE4,
+      ),
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      if (result.remove) {
+        _cart.remove(line.product.id);
+      } else {
+        line.quantityE4 = result.quantityE4;
+        line.lineDiscountE4 = result.discountE4;
+      }
+      _syncPaid();
+    });
+  }
+
+  Future<void> _openSettings() async {
+    final result = await showDialog<PosConfig>(
+      context: context,
+      builder: (context) => _SettingsDialog(config: _config),
+    );
+    if (result == null) return;
+    try {
+      final saved = await _settingsRepo.save(result);
+      if (!mounted) return;
+      setState(() {
+        _config = saved;
+        _syncPaid();
+      });
+      _message('POS settings saved.');
+    } catch (e) {
+      _message('Could not save settings: $e');
+    }
   }
 
   void _message(String value) {
@@ -228,11 +336,16 @@ class _PosScreenState extends State<PosScreen> {
       return;
     }
 
-    late final int amountPaid;
-    try {
-      amountPaid = _parseMoney(_paid.text);
-    } catch (e) {
-      _message(e is PosException ? e.message : 'Enter a valid payment amount.');
+    final priced = _price();
+    final pricing = priced.pricing;
+    if (pricing == null || priced.error != null) {
+      _message(priced.error ?? 'Check the sale details.');
+      return;
+    }
+
+    final received = PosFormat.parseE4(_paid.text);
+    if (received == null) {
+      _message('Enter a valid amount received (up to four decimals).');
       return;
     }
 
@@ -240,6 +353,38 @@ class _PosScreenState extends State<PosScreen> {
     if (cashier.isEmpty) {
       _message('Enter the cashier name.');
       return;
+    }
+
+    final isCash = _paymentMethod == 'Cash';
+    final total = pricing.totalE4;
+    if (!isCash && received > total) {
+      _message('The payment cannot be more than the total for this method.');
+      return;
+    }
+    final applied = isCash ? math.min(received, total) : received;
+
+    if (applied < total) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Sale not fully paid'),
+          content: Text(
+            'Rs ${PosFormat.money(total - applied)} will stay unpaid on this '
+            'sale. Continue?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Back'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Save sale'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
     }
 
     final items = _cart.values
@@ -250,6 +395,11 @@ class _PosScreenState extends State<PosScreen> {
           ),
         )
         .toList();
+    final lineDiscounts = <String, int>{
+      for (final line in _cart.values)
+        if (line.lineDiscountE4 > 0) line.product.id: line.lineDiscountE4,
+    };
+    final reason = _discountReason.text.trim();
 
     setState(() => _saving = true);
     try {
@@ -258,25 +408,25 @@ class _PosScreenState extends State<PosScreen> {
           clientRequestId: generateUuidV4(),
           items: items,
           paymentMethod: _paymentMethod,
-          amountPaidE4: amountPaid,
+          amountPaidE4: applied,
           createdBy: cashier,
           warehouseId: _warehouseId,
+          orderDiscountE4: _orderDiscountE4(),
+          lineDiscountsE4: lineDiscounts,
+          discountReason: reason.isEmpty ? null : reason,
+          cashTenderedE4: isCash ? received : null,
         ),
       );
 
       if (!mounted) return;
-      setState(() {
-        _cart.clear();
-        _paymentEdited = false;
-        _paid.text = '0';
-      });
+      setState(_clearSale);
 
       await showDialog<void>(
         context: context,
         builder: (context) => _ReceiptDialog(
           receipt: receipt,
           businessName: widget.businessName,
-          money: _money,
+          footer: _config.receiptFooter,
         ),
       );
       await _loadProducts();
@@ -295,8 +445,12 @@ class _PosScreenState extends State<PosScreen> {
       ..dispose();
     _paid.dispose();
     _cashier.dispose();
+    _discount.dispose();
+    _discountReason.dispose();
     super.dispose();
   }
+
+  // ---- layout ----
 
   @override
   Widget build(BuildContext context) {
@@ -313,8 +467,13 @@ class _PosScreenState extends State<PosScreen> {
               ),
           ],
         ),
-        actions: const [
-          Padding(
+        actions: [
+          IconButton(
+            tooltip: 'POS settings',
+            onPressed: _openSettings,
+            icon: const Icon(Icons.tune),
+          ),
+          const Padding(
             padding: EdgeInsets.symmetric(horizontal: 12),
             child: Center(
               child: Chip(
@@ -352,7 +511,7 @@ class _PosScreenState extends State<PosScreen> {
                 Expanded(child: products),
                 const SizedBox(height: 10),
                 SizedBox(
-                  height: math.min(360, constraints.maxHeight * 0.46),
+                  height: math.min(440, constraints.maxHeight * 0.58),
                   child: cart,
                 ),
               ],
@@ -364,6 +523,7 @@ class _PosScreenState extends State<PosScreen> {
   }
 
   Widget _productPanel() {
+    final scheme = Theme.of(context).colorScheme;
     return Card(
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
@@ -391,10 +551,7 @@ class _PosScreenState extends State<PosScreen> {
           if (_error != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
+              child: Text(_error!, style: TextStyle(color: scheme.error)),
             ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -422,18 +579,24 @@ class _PosScreenState extends State<PosScreen> {
                     separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (context, index) {
                       final product = _products[index];
+                      final stock = _stockByProduct[product.id] ?? 0;
                       return ListTile(
                         title: Text(
                           product.name,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        subtitle: Text('SKU: ${product.sku}'),
+                        subtitle: Text(
+                          'SKU: ${product.sku}  |  Stock: ${PosFormat.plain(stock)}',
+                          style: stock <= 0
+                              ? TextStyle(color: scheme.error)
+                              : null,
+                        ),
                         leading: const CircleAvatar(
                           child: Icon(Icons.inventory_2_outlined),
                         ),
                         trailing: Text(
-                          'Rs ${_money(product.salePriceE4)}',
+                          'Rs ${PosFormat.money(product.salePriceE4)}',
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                         onTap: () => _add(product),
@@ -447,7 +610,24 @@ class _PosScreenState extends State<PosScreen> {
   }
 
   Widget _cartPanel() {
-    final total = _totalE4;
+    final scheme = Theme.of(context).colorScheme;
+    final priced = _price();
+    final pricing = priced.pricing;
+    final total = pricing?.totalE4 ?? 0;
+    final received = PosFormat.parseE4(_paid.text);
+    final isCash = _paymentMethod == 'Cash';
+    final overpaid =
+        !isCash && pricing != null && received != null && received > total;
+    int? change;
+    int? due;
+    if (pricing != null && received != null) {
+      if (isCash && received > total) {
+        change = received - total;
+      } else if (received < total) {
+        due = total - received;
+      }
+    }
+
     return Card(
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
@@ -465,12 +645,7 @@ class _PosScreenState extends State<PosScreen> {
                 ),
                 const Spacer(),
                 TextButton(
-                  onPressed: _cart.isEmpty
-                      ? null
-                      : () => setState(() {
-                          _cart.clear();
-                          if (!_paymentEdited) _paid.text = '0';
-                        }),
+                  onPressed: _cart.isEmpty ? null : () => setState(_clearSale),
                   child: const Text('Clear'),
                 ),
               ],
@@ -486,13 +661,16 @@ class _PosScreenState extends State<PosScreen> {
                       for (final line in _cart.values)
                         ListTile(
                           dense: true,
+                          onTap: () => _editLine(line),
                           title: Text(
                             line.product.name,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
                           subtitle: Text(
-                            '${_money(line.quantityE4)} × Rs ${_money(line.product.salePriceE4)}',
+                            '${PosFormat.plain(line.quantityE4)} \u00D7 '
+                            'Rs ${PosFormat.money(line.product.salePriceE4)}'
+                            '${line.lineDiscountE4 > 0 ? '  (-${PosFormat.money(line.lineDiscountE4)})' : ''}',
                           ),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -503,7 +681,7 @@ class _PosScreenState extends State<PosScreen> {
                                     _changeQuantity(line.product.id, -10000),
                                 icon: const Icon(Icons.remove_circle_outline),
                               ),
-                              Text(_money(line.quantityE4)),
+                              Text(PosFormat.plain(line.quantityE4)),
                               IconButton(
                                 tooltip: 'Increase quantity',
                                 onPressed: () =>
@@ -523,30 +701,77 @@ class _PosScreenState extends State<PosScreen> {
               padding: const EdgeInsets.all(12),
               child: Column(
                 children: [
-                  _totalRow('Subtotal', total),
+                  _totalRow('Subtotal', pricing?.subtotalE4 ?? 0),
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      const Expanded(child: Text('Amount received')),
-                      SizedBox(
-                        width: 140,
+                      Expanded(
                         child: TextField(
-                          controller: _paid,
+                          controller: _discount,
                           keyboardType: const TextInputType.numberWithOptions(
                             decimal: true,
                           ),
-                          textAlign: TextAlign.end,
-                          decoration: const InputDecoration(
-                            prefixText: 'Rs ',
+                          decoration: InputDecoration(
+                            labelText: _discountPercent
+                                ? 'Discount (%)'
+                                : 'Discount (Rs)',
                             isDense: true,
-                            border: OutlineInputBorder(),
+                            border: const OutlineInputBorder(),
                           ),
-                          onChanged: (_) => _paymentEdited = true,
+                          onChanged: (_) => setState(_syncPaid),
                         ),
+                      ),
+                      const SizedBox(width: 8),
+                      SegmentedButton<bool>(
+                        segments: const <ButtonSegment<bool>>[
+                          ButtonSegment<bool>(value: false, label: Text('Rs')),
+                          ButtonSegment<bool>(value: true, label: Text('%')),
+                        ],
+                        selected: <bool>{_discountPercent},
+                        showSelectedIcon: false,
+                        onSelectionChanged: (selection) => setState(() {
+                          _discountPercent = selection.first;
+                          _syncPaid();
+                        }),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 6),
+                  if (_discount.text.trim().isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _discountReason,
+                      inputFormatters: [LengthLimitingTextInputFormatter(120)],
+                      decoration: const InputDecoration(
+                        labelText: 'Discount reason (optional)',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                  if (pricing != null && pricing.discountE4 > 0) ...[
+                    const SizedBox(height: 8),
+                    _totalRow('Discount', pricing.discountE4, prefix: '-'),
+                  ],
+                  if (pricing != null && _config.taxRateBp > 0) ...[
+                    const SizedBox(height: 4),
+                    _totalRow(
+                      'Tax (${PosPricing.percentLabel(_config.taxRateBp)})',
+                      pricing.taxE4,
+                    ),
+                  ],
+                  if (priced.error != null) ...[
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        priced.error!,
+                        style: TextStyle(color: scheme.error),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  _totalRow('TOTAL', total, bold: true),
+                  const SizedBox(height: 10),
                   Row(
                     children: [
                       const Expanded(child: Text('Payment method')),
@@ -569,6 +794,54 @@ class _PosScreenState extends State<PosScreen> {
                       ),
                     ],
                   ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          isCash ? 'Cash received' : 'Amount received',
+                        ),
+                      ),
+                      SizedBox(
+                        width: 140,
+                        child: TextField(
+                          controller: _paid,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          textAlign: TextAlign.end,
+                          decoration: const InputDecoration(
+                            prefixText: 'Rs ',
+                            isDense: true,
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (_) =>
+                              setState(() => _paymentEdited = true),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (overpaid)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        'More than the total',
+                        style: TextStyle(color: scheme.error),
+                      ),
+                    ),
+                  if (change != null) ...[
+                    const SizedBox(height: 6),
+                    _totalRow(
+                      'Change',
+                      change,
+                      bold: true,
+                      color: Colors.green.shade700,
+                    ),
+                  ],
+                  if (due != null) ...[
+                    const SizedBox(height: 6),
+                    _totalRow('Remaining due', due, color: scheme.error),
+                  ],
+                  const SizedBox(height: 8),
                   TextField(
                     controller: _cashier,
                     decoration: const InputDecoration(
@@ -577,13 +850,14 @@ class _PosScreenState extends State<PosScreen> {
                       border: OutlineInputBorder(),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  _totalRow('TOTAL', total, bold: true),
                   const SizedBox(height: 10),
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(
-                      onPressed: _saving || _cart.isEmpty ? null : _checkout,
+                      onPressed:
+                          _saving || _cart.isEmpty || priced.error != null
+                          ? null
+                          : _checkout,
                       icon: _saving
                           ? const SizedBox(
                               width: 18,
@@ -591,7 +865,7 @@ class _PosScreenState extends State<PosScreen> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Icon(Icons.point_of_sale),
-                      label: Text(_saving ? 'Saving sale…' : 'Complete sale'),
+                      label: Text(_saving ? 'Saving sale...' : 'Complete sale'),
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -609,34 +883,332 @@ class _PosScreenState extends State<PosScreen> {
     );
   }
 
-  Widget _totalRow(String label, int value, {bool bold = false}) {
-    final style = bold
+  Widget _totalRow(
+    String label,
+    int value, {
+    bool bold = false,
+    Color? color,
+    String prefix = '',
+  }) {
+    var style = bold
         ? Theme.of(context).textTheme.titleMedium
               ?.copyWith(fontWeight: FontWeight.w800)
         : null;
+    if (color != null) {
+      style = (style ?? const TextStyle()).copyWith(color: color);
+    }
     return Row(
       children: [
         Expanded(child: Text(label, style: style)),
-        Text('Rs ${_money(value)}', style: style),
+        Text('${prefix}Rs ${PosFormat.money(value)}', style: style),
       ],
     );
   }
 }
 
-class _ReceiptDialog extends StatelessWidget {
+class _LineEdit {
+  const _LineEdit({
+    this.remove = false,
+    this.quantityE4 = 0,
+    this.discountE4 = 0,
+  });
+
+  final bool remove;
+  final int quantityE4;
+  final int discountE4;
+}
+
+class _LineEditDialog extends StatefulWidget {
+  const _LineEditDialog({
+    required this.name,
+    required this.quantityE4,
+    required this.discountE4,
+    required this.availableE4,
+    required this.unitPriceE4,
+  });
+
+  final String name;
+  final int quantityE4;
+  final int discountE4;
+  final int availableE4;
+  final int unitPriceE4;
+
+  @override
+  State<_LineEditDialog> createState() => _LineEditDialogState();
+}
+
+class _LineEditDialogState extends State<_LineEditDialog> {
+  late final TextEditingController _qty = TextEditingController(
+    text: PosFormat.plain(widget.quantityE4),
+  );
+  late final TextEditingController _disc = TextEditingController(
+    text: widget.discountE4 == 0 ? '' : PosFormat.plain(widget.discountE4),
+  );
+  String? _error;
+
+  @override
+  void dispose() {
+    _qty.dispose();
+    _disc.dispose();
+    super.dispose();
+  }
+
+  void _apply() {
+    final quantity = PosFormat.parseE4(_qty.text);
+    if (quantity == null || quantity <= 0) {
+      setState(
+        () => _error = 'Enter a quantity above zero (up to 4 decimals).',
+      );
+      return;
+    }
+    if (quantity > widget.availableE4) {
+      setState(
+        () => _error = 'Only ${PosFormat.plain(widget.availableE4)} in stock.',
+      );
+      return;
+    }
+    final discountText = _disc.text.trim();
+    final int? discount = discountText.isEmpty
+        ? 0
+        : PosFormat.parseE4(discountText);
+    if (discount == null) {
+      setState(() => _error = 'Enter a valid discount amount.');
+      return;
+    }
+    final gross = (quantity * widget.unitPriceE4 + 5000) ~/ 10000;
+    if (discount > gross) {
+      setState(
+        () => _error =
+            'The discount cannot be more than the line amount '
+            '(Rs ${PosFormat.money(gross)}).',
+      );
+      return;
+    }
+    Navigator.of(context)
+        .pop(_LineEdit(quantityE4: quantity, discountE4: discount));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.name, maxLines: 2, overflow: TextOverflow.ellipsis),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Price: Rs ${PosFormat.money(widget.unitPriceE4)}'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _qty,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: InputDecoration(
+                labelText: 'Quantity',
+                helperText: 'In stock: ${PosFormat.plain(widget.availableE4)}',
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _disc,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Line discount (Rs)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () =>
+              Navigator.of(context).pop(const _LineEdit(remove: true)),
+          child: const Text('Remove'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _apply, child: const Text('Apply')),
+      ],
+    );
+  }
+}
+
+class _SettingsDialog extends StatefulWidget {
+  const _SettingsDialog({required this.config});
+
+  final PosConfig config;
+
+  @override
+  State<_SettingsDialog> createState() => _SettingsDialogState();
+}
+
+class _SettingsDialogState extends State<_SettingsDialog> {
+  late final TextEditingController _tax = TextEditingController(
+    text: _bpText(widget.config.taxRateBp),
+  );
+  late final TextEditingController _maxDiscount = TextEditingController(
+    text: _bpText(widget.config.maxDiscountBp),
+  );
+  late final TextEditingController _footer = TextEditingController(
+    text: widget.config.receiptFooter ?? '',
+  );
+  String? _error;
+
+  static String _bpText(int bp) =>
+      PosPricing.percentLabel(bp).replaceAll('%', '');
+
+  @override
+  void dispose() {
+    _tax.dispose();
+    _maxDiscount.dispose();
+    _footer.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final tax = PosFormat.parsePercentBp(_tax.text);
+    final maxDiscount = PosFormat.parsePercentBp(_maxDiscount.text);
+    final footer = _footer.text.trim();
+    if (tax == null) {
+      setState(
+        () =>
+            _error = 'Enter the tax rate as a percent, for example 15 or 12.5.',
+      );
+      return;
+    }
+    if (maxDiscount == null) {
+      setState(
+        () => _error = 'Enter the maximum discount as a percent, 0 to 100.',
+      );
+      return;
+    }
+    if (footer.length > 200) {
+      setState(
+        () => _error = 'The receipt footer is too long (200 characters).',
+      );
+      return;
+    }
+    Navigator.of(context).pop(
+      PosConfig(
+        taxRateBp: tax,
+        maxDiscountBp: maxDiscount,
+        receiptFooter: footer.isEmpty ? null : footer,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('POS settings'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Tax is added on top of the product prices.'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _tax,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Tax rate',
+                suffixText: '%',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _maxDiscount,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Maximum discount per sale',
+                suffixText: '%',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _footer,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Receipt footer (optional)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _save, child: const Text('Save')),
+      ],
+    );
+  }
+}
+
+class _ReceiptDialog extends StatefulWidget {
   const _ReceiptDialog({
     required this.receipt,
     required this.businessName,
-    required this.money,
+    required this.footer,
   });
 
   final PosReceipt receipt;
   final String? businessName;
-  final String Function(int) money;
+  final String? footer;
+
+  @override
+  State<_ReceiptDialog> createState() => _ReceiptDialogState();
+}
+
+class _ReceiptDialogState extends State<_ReceiptDialog> {
+  bool _copied = false;
+
+  Future<void> _copy() async {
+    final text = buildReceiptText(
+      widget.receipt,
+      businessName: widget.businessName,
+      footer: widget.footer,
+    );
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    setState(() => _copied = true);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final due = receipt.totalE4 - receipt.amountPaidE4;
+    final r = widget.receipt;
+    final due = r.totalE4 - r.amountPaidE4;
+    final scheme = Theme.of(context).colorScheme;
     return AlertDialog(
       title: const Row(
         children: [
@@ -652,17 +1224,19 @@ class _ReceiptDialog extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (businessName?.trim().isNotEmpty ?? false)
+              if (widget.businessName?.trim().isNotEmpty ?? false)
                 Text(
-                  businessName!,
+                  widget.businessName!,
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
-              const Text('OFFLINE SALES RECEIPT'),
+              const Text('SALES RECEIPT'),
               const SizedBox(height: 6),
-              SelectableText('Receipt: ${receipt.receiptNumber}'),
-              SelectableText('Date: ${receipt.createdAt.toLocal()}'),
+              SelectableText('Receipt: ${r.receiptNumber}'),
+              SelectableText(
+                'Date: ${PosFormat.dateTime(r.createdAt.toLocal())}',
+              ),
               const Divider(height: 20),
-              for (final line in receipt.lines)
+              for (final line in r.lines)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
                   child: Row(
@@ -679,24 +1253,49 @@ class _ReceiptDialog extends StatelessWidget {
                               ),
                             ),
                             Text(
-                              '${money(line.quantityE4)} × Rs ${money(line.unitPriceE4)}',
+                              '${PosFormat.plain(line.quantityE4)} \u00D7 '
+                              'Rs ${PosFormat.money(line.unitPriceE4)}',
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
+                            if (line.discountE4 > 0)
+                              Text(
+                                'Discount -Rs ${PosFormat.money(line.discountE4)}',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
                           ],
                         ),
                       ),
                       const SizedBox(width: 12),
-                      Text('Rs ${money(line.lineTotalE4)}'),
+                      Text('Rs ${PosFormat.money(line.lineTotalE4)}'),
                     ],
                   ),
                 ),
               const Divider(height: 20),
-              _row(context, 'Subtotal', receipt.subtotalE4),
-              _row(context, 'Total', receipt.totalE4, bold: true),
-              _row(context, 'Received', receipt.amountPaidE4),
-              _row(context, 'Remaining due', due),
-              const SizedBox(height: 8),
-              Text('Payment: ${receipt.paymentMethod}'),
+              _row(context, 'Subtotal', r.subtotalE4),
+              if (r.discountE4 > 0)
+                _row(context, 'Discount', r.discountE4, prefix: '-'),
+              if (r.taxE4 > 0)
+                _row(
+                  context,
+                  'Tax (${PosPricing.percentLabel(r.taxRateBp)})',
+                  r.taxE4,
+                ),
+              _row(context, 'Total', r.totalE4, bold: true),
+              _row(context, 'Paid (${r.paymentMethod})', r.amountPaidE4),
+              if (r.changeE4 > 0)
+                _row(
+                  context,
+                  'Change',
+                  r.changeE4,
+                  bold: true,
+                  color: Colors.green.shade700,
+                ),
+              if (due > 0)
+                _row(context, 'Remaining due', due, color: scheme.error),
+              if (widget.footer?.trim().isNotEmpty ?? false) ...[
+                const SizedBox(height: 12),
+                Text(widget.footer!.trim()),
+              ],
               const SizedBox(height: 12),
               const Text('This receipt reflects the sale saved locally.'),
             ],
@@ -704,6 +1303,11 @@ class _ReceiptDialog extends StatelessWidget {
         ),
       ),
       actions: [
+        TextButton.icon(
+          onPressed: _copy,
+          icon: Icon(_copied ? Icons.check : Icons.copy),
+          label: Text(_copied ? 'Copied' : 'Copy receipt'),
+        ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Close'),
@@ -717,17 +1321,22 @@ class _ReceiptDialog extends StatelessWidget {
     String label,
     int value, {
     bool bold = false,
+    Color? color,
+    String prefix = '',
   }) {
-    final style = bold
+    var style = bold
         ? Theme.of(context).textTheme.titleMedium
               ?.copyWith(fontWeight: FontWeight.w800)
         : null;
+    if (color != null) {
+      style = (style ?? const TextStyle()).copyWith(color: color);
+    }
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         children: [
           Expanded(child: Text(label, style: style)),
-          Text('Rs ${money(value)}', style: style),
+          Text('${prefix}Rs ${PosFormat.money(value)}', style: style),
         ],
       ),
     );

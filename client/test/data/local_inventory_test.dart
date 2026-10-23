@@ -100,14 +100,14 @@ void main() {
     expect(formatQtyE4(-5000), '-0.5');
   });
 
-  test('schema is v3 with the new tables and columns', () async {
+  test('schema is v5 with inventory and sales tables', () async {
     final e = await _env();
     Future<List<String>> cols(String table) async {
       final rows = await e.db.customSelect('PRAGMA table_info($table)').get();
       return [for (final r in rows) r.read<String>('name')];
     }
 
-    expect(AppDatabase.currentSchemaVersion, 3);
+    expect(AppDatabase.currentSchemaVersion, 5);
     expect(
       await cols('stock_movements'),
       containsAll([
@@ -125,7 +125,7 @@ void main() {
     );
     expect(await cols('warehouses'), containsAll(['is_default', 'deleted_at']));
     final v = await e.db.customSelect('PRAGMA user_version').getSingle();
-    expect(v.read<int>('user_version'), 3);
+    expect(v.read<int>('user_version'), 5);
   });
 
   test('the default warehouse is created once', () async {
@@ -419,7 +419,7 @@ void main() {
       final copies = dir
           .listSync()
           .whereType<File>()
-          .where((f) => f.path.contains('.pre-v3-'))
+          .where((f) => f.path.contains('.pre-v5-'))
           .where((f) => !f.path.endsWith('-wal') && !f.path.endsWith('-shm'))
           .toList();
       expect(copies.length, 1);
@@ -439,7 +439,7 @@ void main() {
       copy.close();
 
       final v = await db.customSelect('PRAGMA user_version').getSingle();
-      expect(v.read<int>('user_version'), 3);
+      expect(v.read<int>('user_version'), 5);
       final old = await db
           .customSelect("SELECT name FROM products WHERE id = 'old1'")
           .get();

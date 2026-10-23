@@ -92,7 +92,7 @@ void main() {
       File('${dir.path}/backups/b1.sqlite'),
     );
     expect(backup.existsSync(), isTrue);
-    expect(validateBackupFile(backup).schemaVersion, 3);
+    expect(validateBackupFile(backup).schemaVersion, 5);
     expect(File('${backup.path}.partial').existsSync(), isFalse);
     expect(await db.select(db.products).get(), hasLength(1));
     await db.close();
@@ -117,7 +117,7 @@ void main() {
       directory: dir,
       clock: () => DateTime(2026, 10, 22, 12),
     );
-    expect(result.schemaVersion, 3);
+    expect(result.schemaVersion, 5);
     expect(result.safetyCopy, isNotNull);
     expect(result.safetyCopy!.existsSync(), isTrue);
     expect(_count(result.safetyCopy!.path, 'products'), 2);
@@ -160,10 +160,7 @@ void main() {
         throwsA(isA<BackupException>()),
       );
 
-      expect(
-        partial.readAsStringSync(),
-        'preserve this interrupted backup',
-      );
+      expect(partial.readAsStringSync(), 'preserve this interrupted backup');
       expect(destination.existsSync(), isFalse);
     } finally {
       await db.close();
@@ -299,7 +296,7 @@ void main() {
       raw.close();
 
       final result = await restoreBackup(backup: v1, directory: dir);
-      expect(result.schemaVersion, 3);
+      expect(result.schemaVersion, 5);
 
       final db = await openAppDatabase(directory: dir);
       final units = await db.select(db.units).get();
