@@ -92,7 +92,7 @@ void main() {
       File('${dir.path}/backups/b1.sqlite'),
     );
     expect(backup.existsSync(), isTrue);
-    expect(validateBackupFile(backup).schemaVersion, 5);
+    expect(validateBackupFile(backup).schemaVersion, 6);
     expect(File('${backup.path}.partial').existsSync(), isFalse);
     expect(await db.select(db.products).get(), hasLength(1));
     await db.close();
@@ -117,7 +117,7 @@ void main() {
       directory: dir,
       clock: () => DateTime(2026, 10, 22, 12),
     );
-    expect(result.schemaVersion, 5);
+    expect(result.schemaVersion, 6);
     expect(result.safetyCopy, isNotNull);
     expect(result.safetyCopy!.existsSync(), isTrue);
     expect(_count(result.safetyCopy!.path, 'products'), 2);
@@ -296,7 +296,7 @@ void main() {
       raw.close();
 
       final result = await restoreBackup(backup: v1, directory: dir);
-      expect(result.schemaVersion, 5);
+      expect(result.schemaVersion, 6);
 
       final db = await openAppDatabase(directory: dir);
       final units = await db.select(db.units).get();

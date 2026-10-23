@@ -3,6 +3,7 @@ import 'package:drift/drift.dart';
 
 import 'inventory_schema.dart';
 import 'sales_schema.dart';
+import 'returns_schema.dart';
 
 part 'app_database.g.dart';
 
@@ -221,6 +222,49 @@ class PosSettings extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+/// A return document. It never changes the sale it belongs to.
+/// Money is integer E4. [totalE4] is the goods value (net + tax) coming back;
+/// [refundE4] is the money paid out now, which can be less on a part-paid sale.
+@DataClassName('SaleReturnRow')
+class SaleReturns extends Table {
+  TextColumn get id => text()();
+  TextColumn get companyId => text()();
+  TextColumn get saleId => text().references(Sales, #id)();
+  TextColumn get returnNumber => text()();
+  TextColumn get clientRequestId => text()();
+  IntColumn get netE4 => integer()();
+  IntColumn get taxE4 => integer()();
+  IntColumn get totalE4 => integer()();
+  IntColumn get refundE4 => integer()();
+  TextColumn get refundMethod => text()();
+  TextColumn get reason => text()();
+  DateTimeColumn get createdAt => dateTime()();
+  TextColumn get createdBy => text()();
+  TextColumn get originDeviceId => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+/// One returned sale line. [disposition] is 'restock' (stock goes up and
+/// [stockMovementId] points at the ledger row) or 'discard' (no stock change).
+@DataClassName('SaleReturnLineRow')
+class SaleReturnLines extends Table {
+  TextColumn get id => text()();
+  TextColumn get returnId => text().references(SaleReturns, #id)();
+  TextColumn get saleLineId => text().references(SaleLines, #id)();
+  TextColumn get productId => text().references(Products, #id)();
+  TextColumn get skuSnapshot => text()();
+  TextColumn get nameSnapshot => text()();
+  IntColumn get quantityE4 => integer()();
+  IntColumn get netE4 => integer()();
+  IntColumn get taxE4 => integer()();
+  TextColumn get disposition => text()();
+  TextColumn get stockMovementId => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
 @DriftDatabase(
   tables: [
     Units,
@@ -233,12 +277,14 @@ class PosSettings extends Table {
     SaleLines,
     SalePayments,
     PosSettings,
+    SaleReturns,
+    SaleReturnLines,
   ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.executor);
 
-  static const int currentSchemaVersion = 5;
+  static const int currentSchemaVersion = 6;
 
   @override
   int get schemaVersion => currentSchemaVersion;
@@ -271,6 +317,9 @@ class AppDatabase extends _$AppDatabase {
         await customStatement(statement);
       }
       for (final statement in kSalesIntegrityStatements) {
+        await customStatement(statement);
+      }
+      for (final statement in kReturnsSchemaStatements) {
         await customStatement(statement);
       }
     },
@@ -317,6 +366,15 @@ class AppDatabase extends _$AppDatabase {
         }
         await m.createTable(posSettings);
         for (final statement in kSalesIntegrityStatements) {
+          await customStatement(statement);
+        }
+      }
+      // v5 -> v6: returns and refunds. Only new tables, indexes and triggers;
+      // no existing sale, line, payment or stock row is touched.
+      if (from < 6) {
+        await m.createTable(saleReturns);
+        await m.createTable(saleReturnLines);
+        for (final statement in kReturnsSchemaStatements) {
           await customStatement(statement);
         }
       }

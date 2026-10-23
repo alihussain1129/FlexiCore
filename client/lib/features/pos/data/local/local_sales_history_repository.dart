@@ -65,7 +65,7 @@ class SalesSummary {
     byMethod: <MethodTotal>[],
   );
 
-  /// Sales counted in the totals (not voided and not fully returned).
+  /// Sales counted in the totals (not voided).
   final int saleCount;
   final int subtotalE4;
   final int discountE4;
@@ -135,7 +135,7 @@ class LocalSalesHistoryRepository {
   final LocalPosRepository _pos;
 
   static bool _excluded(String status) =>
-      status == 'voided' || status == 'returned';
+      status == 'voided';
 
   /// Company, date, method and status filters run in SQL. Text matching runs
   /// in Dart so it is case-insensitive and every character is literal.
