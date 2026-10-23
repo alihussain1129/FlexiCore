@@ -782,7 +782,7 @@ class _SaleDetailDialogState extends State<_SaleDetailDialog> {
         if (widget.returnable.canReturn)
           OutlinedButton.icon(
             key: const Key('sale-return-button'),
-            onPressed: _startReturn,
+            onPressed: isReadOnlyOf(context) ? null : _startReturn,
             icon: const Icon(Icons.assignment_return),
             label: const Text('Return'),
           ),

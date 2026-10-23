@@ -12,6 +12,8 @@ import '../../data/local/database_integrity.dart';
 import '../profile/presentation/profile_controller.dart';
 import '../profile/presentation/profile_edit_dialog.dart';
 
+import '../../core/read_only.dart';
+
 /// Closes the database, restores [backup], and reopens the app on the result.
 typedef RestoreHandler = Future<({bool ok, String message})> Function(
   File backup,
@@ -47,6 +49,10 @@ class _LocalDataMenuState extends State<LocalDataMenu> {
     try {
       switch (action) {
         case _Action.profile:
+          if (isReadOnlyNow(context)) {
+            showReadOnlyNotice(context);
+            return;
+          }
           await showDialog<void>(
             context: context,
             builder: (_) => ProfileEditDialog(controller: widget.profile),
