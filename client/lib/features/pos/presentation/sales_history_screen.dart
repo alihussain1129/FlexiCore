@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../../core/read_only.dart';
 import 'package:flutter/services.dart';
 
 import '../../../data/local/app_database.dart';
@@ -618,6 +619,10 @@ class _SaleDetailDialogState extends State<_SaleDetailDialog> {
   String? _copiedReturnId;
 
   Future<void> _startReturn() async {
+    if (isReadOnlyNow(context)) {
+      showReadOnlyNotice(context);
+      return;
+    }
     final receipt = await showDialog<ReturnReceipt>(
       context: context,
       barrierDismissible: false,

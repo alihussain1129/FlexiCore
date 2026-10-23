@@ -125,6 +125,10 @@ class _StockInScreenState extends State<StockInScreen> {
 
   Future<void> _chooseWarehouse(String value) async {
     if (value == _addWarehouseValue) {
+      if (isReadOnlyNow(context)) {
+        showReadOnlyNotice(context);
+        return;
+      }
       final created = await showDialog<Warehouse>(
         context: context,
         builder: (context) => AddWarehouseDialog(repo: _repo),
@@ -345,7 +349,7 @@ class _StockInScreenState extends State<StockInScreen> {
             children: [
               Expanded(
                 child: InkWell(
-                  onTap: () => _open(line, StockMovementType.receipt),
+                  onTap: isReadOnlyOf(context) ? null : () => _open(line, StockMovementType.receipt),
                   borderRadius: BorderRadius.circular(12),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 2),
@@ -436,6 +440,7 @@ class _StockInScreenState extends State<StockInScreen> {
               ),
               PopupMenuButton<StockMovementType>(
                 tooltip: 'Stock actions',
+                enabled: !isReadOnlyOf(context),
                 onSelected: (type) => _open(line, type),
                 itemBuilder: (context) => const [
                   PopupMenuItem(

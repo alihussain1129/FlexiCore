@@ -330,7 +330,7 @@ class _PosScreenState extends State<PosScreen> {
       });
       _message('POS settings saved.');
     } catch (e) {
-      _message('Could not save settings: $e');
+      _message(friendlyError(e, 'Could not save settings'));
     }
   }
 
