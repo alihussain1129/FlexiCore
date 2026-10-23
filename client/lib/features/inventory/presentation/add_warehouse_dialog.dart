@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/read_only.dart';
 
 import '../data/local_inventory_repository.dart';
 import '../domain/inventory_domain.dart';
@@ -49,7 +50,7 @@ class _AddWarehouseDialogState extends State<AddWarehouseDialog> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = 'Could not save: $e';
+        _error = friendlyError(e, 'Could not save');
         _saving = false;
       });
     }

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/material.dart';
+import '../../../core/read_only.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/ids.dart';
@@ -477,6 +478,10 @@ class _PosScreenState extends State<PosScreen> {
       receipt = await _pos.checkout(request);
     } catch (e) {
       if (!mounted) return;
+      if (e is ReadOnlyLicenseException) {
+        _message(e.toString());
+        return;
+      }
       setState(() => _checkoutOutcomeUncertain = true);
       _message(
         'The save outcome could not be confirmed. Do not change this sale; '
@@ -705,7 +710,7 @@ class _PosScreenState extends State<PosScreen> {
   Widget _checkoutButton() {
     final priced = _price();
     return FilledButton.icon(
-      onPressed: _saving || _cart.isEmpty || priced.error != null
+      onPressed: _saving || _cart.isEmpty || priced.error != null || isReadOnlyOf(context)
           ? null
           : _checkout,
       icon: _saving

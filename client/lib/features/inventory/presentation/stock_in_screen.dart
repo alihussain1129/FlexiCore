@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/read_only.dart';
 
 import '../../../core/ids.dart';
 import '../../../data/local/app_database.dart';
@@ -463,13 +464,13 @@ class _StockInScreenState extends State<StockInScreen> {
               final compact = constraints.maxWidth < 340;
 
               final addButton = FilledButton.icon(
-                onPressed: () => _open(line, StockMovementType.receipt),
+                onPressed: isReadOnlyOf(context) ? null : () => _open(line, StockMovementType.receipt),
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('Add stock'),
               );
 
               final removeButton = OutlinedButton.icon(
-                onPressed: line.onHandE4 <= 0
+                onPressed: line.onHandE4 <= 0 || isReadOnlyOf(context)
                     ? null
                     : () => _open(line, StockMovementType.issue),
                 icon: const Icon(Icons.remove, size: 18),
@@ -674,7 +675,7 @@ class _MovementSheetState extends State<_MovementSheet> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = 'Could not save: $e';
+        _error = friendlyError(e, 'Could not save');
         _saving = false;
       });
     }

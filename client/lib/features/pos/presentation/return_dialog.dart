@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/read_only.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/ids.dart';
@@ -181,7 +182,7 @@ class _ReturnDialogState extends State<ReturnDialog> {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _error = 'The return could not be saved: $e';
+        _error = friendlyError(e, 'The return could not be saved');
       });
     }
   }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/read_only.dart';
 
 import '../../../core/app_theme.dart';
 import '../../../core/ids.dart';
@@ -281,7 +282,7 @@ class _EmptyState extends StatelessWidget {
               if (actionLabel != null && onAction != null) ...[
                 const SizedBox(height: 18),
                 FilledButton.icon(
-                  onPressed: onAction,
+                  onPressed: isReadOnlyOf(context) ? null : onAction,
                   icon: const Icon(Icons.add),
                   label: Text(actionLabel!),
                 ),
@@ -307,13 +308,13 @@ class _RowActions extends StatelessWidget {
       children: [
         IconButton(
           tooltip: 'Edit',
-          onPressed: onEdit,
+          onPressed: isReadOnlyOf(context) ? null : onEdit,
           icon: const Icon(Icons.edit_outlined),
           color: AppColors.teal,
         ),
         IconButton(
           tooltip: 'Delete',
-          onPressed: onDelete,
+          onPressed: isReadOnlyOf(context) ? null : onDelete,
           icon: const Icon(Icons.delete_outline),
           color: AppColors.danger,
         ),
@@ -482,7 +483,7 @@ class _UnitsTab extends StatelessWidget {
           Align(
             alignment: Alignment.centerRight,
             child: FilledButton.icon(
-              onPressed: () => _add(context),
+              onPressed: isReadOnlyOf(context) ? null : () => _add(context),
               icon: const Icon(Icons.add),
               label: const Text('Add unit'),
             ),
@@ -703,7 +704,7 @@ class _ProductsTab extends StatelessWidget {
       ),
     );
     final add = FilledButton.icon(
-      onPressed: () => _add(context),
+      onPressed: isReadOnlyOf(context) ? null : () => _add(context),
       icon: const Icon(Icons.add),
       label: const Text('Add product'),
     );
