@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <SupportedOSPlatformVersion>23</SupportedOSPlatformVersion>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationId>com.flexicore.activationengine</ApplicationId>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
+    <AndroidPackageFormat>apk</AndroidPackageFormat>
+    <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
+    <AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
+    <AndroidUseAapt2>true</AndroidUseAapt2>
+    <AssemblyName>FlexiCore.ActivationAndroid</AssemblyName>
+    <RootNamespace>FlexiCore.ActivationApp</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Android" Version="12.0.0" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FlexiCore.ActivationServices\FlexiCore.ActivationServices.csproj" />
+    <Compile Include="..\FlexiCore.ActivationApp\MainWindow.cs" Link="UI\ActivationShell.cs" />
+    <Compile Include="..\FlexiCore.ActivationApp\ActivationDesignSystem.cs" Link="UI\ActivationDesignSystem.cs" />
+    <Compile Include="..\FlexiCore.ActivationApp\FlexiTokens.cs" Link="UI\FlexiTokens.cs" />
+    <Compile Include="..\FlexiCore.ActivationApp\UI\**\*.cs" LinkBase="UI\Shared" />
+    <AvaloniaResource Include="..\FlexiCore.ActivationApp\Assets\Fonts\*.ttf" Link="Assets\Fonts\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>

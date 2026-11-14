@@ -9,9 +9,14 @@
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/FlexiCore.LicenseTool/FlexiCore.LicenseTool.csproj" />
+    <Project Path="tools/FlexiCore.LicenseTool.Core/FlexiCore.LicenseTool.Core.csproj" />
+    <Project Path="tools/FlexiCore.ActivationServices/FlexiCore.ActivationServices.csproj" />
+    <Project Path="tools/FlexiCore.ActivationApp/FlexiCore.ActivationApp.csproj" />
+    <Project Path="tools/FlexiCore.ActivationAndroid/FlexiCore.ActivationAndroid.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/FlexiCore.LicenseTool.Tests/FlexiCore.LicenseTool.Tests.csproj" />
+    <Project Path="tests/FlexiCore.ActivationEngine.Tests/FlexiCore.ActivationEngine.Tests.csproj" />
     <Project Path="tests/FlexiCore.ArchitectureTests/FlexiCore.ArchitectureTests.csproj" />
     <Project Path="tests/FlexiCore.IntegrationTests/FlexiCore.IntegrationTests.csproj" />
     <Project Path="tests/FlexiCore.UnitTests/FlexiCore.UnitTests.csproj" />

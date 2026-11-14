@@ -4,7 +4,7 @@ Each entry records what was decided, why, and any known limitation. Planned work
 
 ## Current implementation snapshot
 
-This snapshot supersedes earlier phase notes where they describe the client or licensing as not yet implemented. FlexiCore currently has a Flutter Windows client, hosted identity and tenancy APIs, Local license enforcement and one-time local first-owner setup. Organization/company records are persisted in PostgreSQL. The client data-exchange workflow supports those records only; no transactional ERP modules or financial documents exist yet. See the root README for supported operations and current verification gaps.
+This snapshot supersedes earlier phase notes where they describe the client or licensing as not yet implemented. FlexiCore currently has a Flutter client targeting Windows, Android and Linux, hosted identity and tenancy APIs, Local license enforcement and one-time local first-owner setup. Organization/company records are persisted in PostgreSQL. The client data-exchange workflow supports those records only; no transactional ERP modules or financial documents exist yet. See the root README for supported operations and current verification gaps.
 
 Local license activation requests can be copied or saved from the client and signed offline by the owner tool. No production public key set is embedded, so production Local activation is not ready. The license import endpoints currently do not implement owner-only authorization; the earlier “Temporary choices” warning remains applicable. Do not treat the current implementation as a completed commercial licensing model.
 

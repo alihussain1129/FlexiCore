@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>FlexiCore.LicenseTool.Core</AssemblyName>
+    <RootNamespace>FlexiCore.LicenseTool</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\FlexiCore.LicenseTool\*.cs"
+             Exclude="..\FlexiCore.LicenseTool\ArgParser.cs;..\FlexiCore.LicenseTool\IToolConsole.cs;..\FlexiCore.LicenseTool\LicenseToolApp.cs;..\FlexiCore.LicenseTool\Program.cs;..\FlexiCore.LicenseTool\TestVectors.cs"
+             Link="%(Filename)%(Extension)" />
+    <Compile Include="..\FlexiCore.LicenseTool\Properties\AssemblyInfo.cs"
+             Link="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\FlexiCore.Licensing\FlexiCore.Licensing.csproj" />
+  </ItemGroup>
+
+</Project>

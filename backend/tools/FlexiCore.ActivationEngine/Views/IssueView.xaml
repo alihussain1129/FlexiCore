@@ -1,0 +1,220 @@
+<UserControl x:Class="FlexiCore.ActivationEngine.Views.IssueView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:FlexiCore.ActivationEngine.Views">
+  <UserControl.Resources>
+    <Style x:Key="TermChip" TargetType="ListBoxItem">
+      <Setter Property="Margin" Value="0,0,8,8"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ListBoxItem">
+            <Border x:Name="Bd" Background="White" BorderBrush="{StaticResource InputBorderBrush}"
+                    BorderThickness="1" CornerRadius="8" Padding="16,9"
+                    TextElement.Foreground="{DynamicResource TextBrush}">
+              <ContentPresenter/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverRowBrush}"/>
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource PrimaryBrush}"/>
+                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                <Setter TargetName="Bd" Property="TextElement.Foreground" Value="White"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </UserControl.Resources>
+
+  <StackPanel>
+    <TextBlock Text="{Binding Title}" Style="{StaticResource PageTitle}"/>
+    <TextBlock Text="Pick the customer and the period. The Engine does the rest." Style="{StaticResource PageSubtitle}" Margin="0,4,0,22"/>
+    <local:StatusBanner/>
+
+    <Border Style="{StaticResource Card}" Margin="0,0,0,16" Background="{StaticResource WarnBgBrush}"
+            Visibility="{Binding HasNoKeys, Converter={StaticResource BoolToVis}}">
+      <StackPanel>
+        <TextBlock Text="{Binding NoKeyTitle}" FontWeight="SemiBold"
+                   Foreground="{StaticResource WarnFgBrush}"/>
+        <TextBlock Text="{Binding NoKeyHelp}" TextWrapping="Wrap" Style="{StaticResource BodyMuted}"
+                   Foreground="{StaticResource WarnFgBrush}" Margin="0,4,0,12"/>
+        <Button Content="Go to Signing Keys" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Left"
+                Command="{Binding DataContext.GoKeysCommand, RelativeSource={RelativeSource AncestorType=Window}}"/>
+      </StackPanel>
+    </Border>
+
+    <!-- 1. Customer and period -->
+    <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+      <StackPanel>
+        <TextBlock Text="1. Customer and license period" FontSize="16" FontWeight="SemiBold"
+                   Foreground="{StaticResource TextBrush}" Margin="0,0,0,16"/>
+
+        <TextBlock Text="Customer or organization" Style="{StaticResource FieldLabel}"/>
+        <ComboBox Style="{StaticResource InputCombo}" IsEditable="True" FontSize="16" MinHeight="44"
+                  ItemsSource="{Binding KnownCustomers}"
+                  Text="{Binding Licensee, UpdateSourceTrigger=PropertyChanged}"
+                  AutomationProperties.Name="Customer or organization"/>
+        <TextBlock Text="Type a new name, or pick an existing customer to renew their license."
+                   Style="{StaticResource BodyMuted}" Margin="0,6,0,18"/>
+
+        <TextBlock Text="License period" Style="{StaticResource FieldLabel}"/>
+        <ListBox ItemsSource="{Binding TermChoices}" SelectedValuePath="Kind"
+                 SelectedValue="{Binding SelectedTerm, Mode=TwoWay}"
+                 ItemContainerStyle="{StaticResource TermChip}"
+                 Background="Transparent" BorderThickness="0" Padding="0"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                 AutomationProperties.Name="License period">
+          <ListBox.ItemsPanel>
+            <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+          </ListBox.ItemsPanel>
+          <ListBox.ItemTemplate>
+            <DataTemplate><TextBlock Text="{Binding Label}" FontSize="14"/></DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+        <TextBlock Text="{Binding ExpiryPreview}" FontSize="14" FontWeight="SemiBold"
+                   Foreground="{StaticResource TextBrush}" Margin="0,2,0,0" TextWrapping="Wrap"/>
+
+        <StackPanel Margin="0,14,0,0" Visibility="{Binding IsCustomTerm, Converter={StaticResource BoolToVis}}">
+          <TextBlock Text="Custom expiry date (UTC)" Style="{StaticResource FieldLabel}"/>
+          <DatePicker Style="{StaticResource InputDate}" SelectedDate="{Binding ExpiresDate}"
+                      HorizontalAlignment="Left" MinWidth="220" AutomationProperties.Name="Custom expiry date"/>
+        </StackPanel>
+      </StackPanel>
+    </Border>
+
+    <!-- 2. Request code -->
+    <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+      <StackPanel>
+        <TextBlock Text="2. The customer's computer" FontSize="16" FontWeight="SemiBold"
+                   Foreground="{StaticResource TextBrush}" Margin="0,0,0,8"/>
+        <Grid Margin="0,0,0,8">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <TextBlock Text="Ask the customer to press Copy on the ERP Activate screen and send you the request code (FCR1-...). If it is already on your clipboard, it fills in by itself."
+                     Style="{StaticResource BodyMuted}" VerticalAlignment="Center"/>
+          <Button Grid.Column="1" Content="Paste from clipboard" Style="{StaticResource SecondaryButton}"
+                  Padding="12,5" Margin="12,0,0,0" Click="OnPasteRequestClick"/>
+        </Grid>
+        <TextBox x:Name="RequestCodeBox" Style="{StaticResource InputBox}" Text="{Binding RequestText, UpdateSourceTrigger=PropertyChanged}"
+                 AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" FontFamily="Consolas"
+                 VerticalContentAlignment="Top" AutomationProperties.Name="Customer request code"/>
+        <TextBlock Text="{Binding BindingSummary}" Style="{StaticResource BodyMuted}" Margin="0,8,0,0"/>
+      </StackPanel>
+    </Border>
+
+    <!-- 3. Sign -->
+    <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+      <StackPanel>
+        <TextBlock Text="3. Sign and issue" FontSize="16" FontWeight="SemiBold"
+                   Foreground="{StaticResource TextBrush}" Margin="0,0,0,14"/>
+
+        <TextBlock Text="{Binding KeyNotice}" TextWrapping="Wrap" FontSize="13" Foreground="{StaticResource WarnFgBrush}" Margin="0,0,0,10" Visibility="{Binding HasKeyNotice, Converter={StaticResource BoolToVis}}"/> <TextBlock Text="{Binding SelectedKeyId, StringFormat='Signing key: {0}'}" Style="{StaticResource BodyMuted}" Margin="0,0,0,12"
+                   Visibility="{Binding HasSingleKey, Converter={StaticResource BoolToVis}}"/>
+        <StackPanel Margin="0,0,0,12" Visibility="{Binding HasMultipleKeys, Converter={StaticResource BoolToVis}}">
+          <TextBlock Text="Signing key" Style="{StaticResource FieldLabel}"/>
+          <ComboBox Style="{StaticResource InputCombo}" ItemsSource="{Binding KeyIds}" SelectedItem="{Binding SelectedKeyId}"
+                    AutomationProperties.Name="Signing key"/>
+        </StackPanel>
+
+        <TextBlock Text="Key passphrase (never saved to disk)" Style="{StaticResource FieldLabel}"/>
+        <PasswordBox x:Name="Passphrase" Style="{StaticResource InputPassword}" AutomationProperties.Name="Key passphrase"/>
+        <CheckBox Content="Keep the key unlocked for 30 minutes (kept in memory only)" IsChecked="{Binding KeepUnlocked}"
+                  FontSize="13" Margin="0,10,0,0"/>
+        <Grid Margin="0,8,0,16" Visibility="{Binding IsUnlocked, Converter={StaticResource BoolToVis}}">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <TextBlock Text="{Binding UnlockHint}" Style="{StaticResource BodyMuted}" VerticalAlignment="Center"/>
+          <Button Grid.Column="1" Content="Lock now" Style="{StaticResource SecondaryButton}" Padding="12,5" Click="OnLockClick"/>
+        </Grid>
+
+        <Button Content="Issue License" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left"
+                FontSize="16" Padding="36,13" Margin="0,6,0,0" IsEnabled="{Binding IsNotBusy}" Click="OnIssueClick"
+                AutomationProperties.Name="Issue License"/>
+        <TextBlock Text="The license is saved automatically in Documents, in the folder FlexiCore Licenses, with one folder per customer. An existing file is never replaced. The license is checked against the public key before it is written, then recorded in the ledger."
+                   Style="{StaticResource BodyMuted}" Margin="0,12,0,0"/>
+
+        <Expander Header="Advanced options (license ID, start date, grace period, installations)"
+                  Margin="0,18,0,0" IsExpanded="False" Foreground="{StaticResource MutedBrush}">
+          <StackPanel Margin="0,14,0,0">
+            <Grid Margin="0,0,0,16">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+              <StackPanel>
+                <TextBlock Text="License ID (made for you)" Style="{StaticResource FieldLabel}"/>
+                <Grid>
+                  <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                  <TextBox Style="{StaticResource InputBox}" Text="{Binding LicenseId, UpdateSourceTrigger=PropertyChanged}"
+                           FontFamily="Consolas" AutomationProperties.Name="License ID"/>
+                  <Button Grid.Column="1" Content="Generate" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
+                          Command="{Binding GenerateIdCommand}"/>
+                </Grid>
+              </StackPanel>
+              <StackPanel Grid.Column="2">
+                <TextBlock Text="Valid from (UTC)" Style="{StaticResource FieldLabel}"/>
+                <DatePicker Style="{StaticResource InputDate}" SelectedDate="{Binding NotBeforeDate}" AutomationProperties.Name="Valid from"/>
+                <TextBlock Text="{Binding NotBeforePreview}" Style="{StaticResource BodyMuted}" Margin="0,6,0,0"/>
+              </StackPanel>
+            </Grid>
+            <Grid Margin="0,0,0,12">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+              <StackPanel>
+                <TextBlock Text="Grace days after expiry (0 to 365). The ERP works normally during these days." Style="{StaticResource FieldLabel}" TextWrapping="Wrap"/>
+                <TextBox Style="{StaticResource InputBox}" Text="{Binding GraceDaysText, UpdateSourceTrigger=PropertyChanged}"
+                         AutomationProperties.Name="Grace days"/>
+              </StackPanel>
+              <StackPanel Grid.Column="2">
+                <TextBlock Text="Maximum installations (1 to 100000). Recorded in the license only, not enforced yet." Style="{StaticResource FieldLabel}" TextWrapping="Wrap"/>
+                <TextBox Style="{StaticResource InputBox}" Text="{Binding MaxInstallationsText, UpdateSourceTrigger=PropertyChanged}"
+                         AutomationProperties.Name="Maximum installations"/>
+              </StackPanel>
+            </Grid>
+            <CheckBox Content="Also write an activation code file (.code.txt) next to the license"
+                      IsChecked="{Binding WriteActivationCode}" FontSize="13" Margin="0,0,0,10"/>
+            <CheckBox Content="Allow a license without a request code (testing only: the customer's ERP refuses these by default)"
+                      IsChecked="{Binding AllowUnbound}" FontSize="13"/>
+          </StackPanel>
+        </Expander>
+      </StackPanel>
+    </Border>
+
+    <!-- Result -->
+    <Border Style="{StaticResource Card}" Background="{StaticResource SuccessSoftBrush}"
+            Visibility="{Binding HasResult, Converter={StaticResource BoolToVis}}">
+      <StackPanel>
+        <TextBlock Text="License issued" FontSize="18" FontWeight="SemiBold"
+                   Foreground="{StaticResource TextBrush}" Margin="0,0,0,14"/>
+        <WrapPanel Margin="0,0,0,14">
+          <Button Content="Copy license text" Tag="{Binding LastActivationText}" Style="{StaticResource PrimaryButton}"
+                  Padding="16,9" Margin="0,0,8,8" Click="OnCopyValueClick"
+                  ToolTip="Copies the activation code text (FCL1-...) of the license you just issued"
+                  AutomationProperties.Name="Copy license text"/>
+          <Button Content="Show file in Explorer" Style="{StaticResource SecondaryButton}" Margin="0,0,8,8"
+                  Command="{Binding RevealCommand}"/>
+          <Button Content="Open folder" Style="{StaticResource SecondaryButton}" Margin="0,0,8,8"
+                  Command="{Binding OpenFolderCommand}"/>
+          <Button Content="New customer" Style="{StaticResource SecondaryButton}" Margin="0,0,8,8"
+                  Command="{Binding NewCustomerCommand}"/>
+        </WrapPanel>
+        <ItemsControl ItemsSource="{Binding Result}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <Grid Margin="0,0,0,10">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="170"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding Label}" Style="{StaticResource SectionLabel}" TextWrapping="Wrap" Margin="0,4,8,0"/>
+                <TextBox Grid.Column="1" Text="{Binding Value, Mode=OneWay}" IsReadOnly="True" BorderThickness="0"
+                         Background="Transparent" TextWrapping="Wrap" FontSize="13" Padding="0" MinWidth="0"
+                         Foreground="{StaticResource TextBrush}"/>
+                <Button Grid.Column="2" Content="Copy" Tag="{Binding Value}"
+                        Style="{StaticResource SecondaryButton}" Padding="10,5"
+                        Margin="8,0,0,0" VerticalAlignment="Top" Click="OnCopyValueClick"/>
+              </Grid>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </Border>
+  </StackPanel>
+</UserControl>

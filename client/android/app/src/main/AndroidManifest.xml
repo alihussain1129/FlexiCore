@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="flexicore_client"
+        android:label="FlexiCore"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

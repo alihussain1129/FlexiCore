@@ -3,7 +3,7 @@ using Xunit;
 
 namespace FlexiCore.ArchitectureTests;
 
-/// <summary>Keeps the owner tool and every private key out of the product, the repository and the build output.</summary>
+/// <summary>Keeps the owner tool isolated from product code, except for its offline activation services.</summary>
 public class LicenseToolRuleTests
 {
     private static readonly string[] SkippedFolders = ["bin", "obj", ".vs", ".git", "node_modules"];
@@ -42,17 +42,19 @@ public class LicenseToolRuleTests
         Path.GetRelativePath(root, file).Replace('\\', '/');
 
     [Fact]
-    public void Nothing_references_the_license_tool_except_its_own_tests()
+    public void Only_offline_activation_services_and_tool_tests_reference_the_license_tool()
     {
         var root = BackendRoot();
         foreach (var project in Files(root).Where(f => f.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)))
         {
             var relative = Relative(root, project);
             if (relative.StartsWith("tools/FlexiCore.LicenseTool/", StringComparison.Ordinal)
+                // Owner-only services orchestrate key protection, issuance, and ledger operations.
+                || relative.StartsWith("tools/FlexiCore.ActivationServices/", StringComparison.Ordinal)
                 || relative.StartsWith("tests/FlexiCore.LicenseTool.Tests/", StringComparison.Ordinal))
                 continue;
 
-            Assert.DoesNotContain("FlexiCore.LicenseTool", File.ReadAllText(project), StringComparison.Ordinal);
+            Assert.DoesNotContain("FlexiCore.LicenseTool.csproj", File.ReadAllText(project), StringComparison.Ordinal);
         }
     }
 

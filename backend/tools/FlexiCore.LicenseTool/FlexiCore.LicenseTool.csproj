@@ -8,11 +8,16 @@
     <IsPackable>false</IsPackable>
     <AssemblyName>FlexiCore.LicenseTool</AssemblyName>
     <RootNamespace>FlexiCore.LicenseTool</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
 
-  <!-- Owner-only tool: no NuGet dependencies on purpose (small supply-chain surface for a signing tool).
-       It reuses the Licensing library only for the payload limits and for self-checking what it issues. -->
   <ItemGroup>
+    <Compile Include="ArgParser.cs" />
+    <Compile Include="IToolConsole.cs" />
+    <Compile Include="LicenseToolApp.cs" />
+    <Compile Include="Program.cs" />
+    <Compile Include="TestVectors.cs" />
+    <ProjectReference Include="..\FlexiCore.LicenseTool.Core\FlexiCore.LicenseTool.Core.csproj" />
     <ProjectReference Include="..\..\src\FlexiCore.Licensing\FlexiCore.Licensing.csproj" />
   </ItemGroup>
 

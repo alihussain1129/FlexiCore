@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../../core/api_client.dart';
 import '../../core/api_exception.dart';
 import '../../core/appearance_controller.dart';
+import '../../core/flexicore_theme.dart';
 import '../auth/session_controller.dart';
 import 'import_mapping_dialog.dart';
 import 'spreadsheet_exchange.dart';
@@ -31,6 +32,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   bool _working = false;
   bool _hasMoreOrganizations = false;
   bool _hasMoreCompanies = false;
+  String _selectedModule = 'Overview';
   String _search = '';
   String _sortColumn = 'name';
   bool _sortAscending = true;
@@ -40,6 +42,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
 
   static const _modules = <_WorkspaceModule>[
     _WorkspaceModule('Overview', Icons.dashboard_outlined),
+    _WorkspaceModule('Directory', Icons.apartment_outlined),
   ];
 
   @override
@@ -752,7 +755,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     return Scaffold(
       drawer: wide ? null : Drawer(child: SafeArea(child: _navigation())),
       appBar: AppBar(
-        title: const Text('FlexiCore'),
+        title: Text(wide ? 'Workspace' : 'FlexiCore'),
         actions: [
           IconButton(
             tooltip: 'Refresh workspace',
@@ -861,58 +864,119 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
         children: [
           if (wide)
             SizedBox(
-              width: 250,
+              width: 264,
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  border: Border(right: BorderSide(color: theme.dividerColor)),
+                  color: theme.colorScheme.surfaceContainerLow,
+                  border: Border(
+                    right: BorderSide(color: theme.colorScheme.outlineVariant),
+                  ),
                 ),
                 child: SafeArea(child: _navigation()),
               ),
             ),
           Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _error != null
-                ? _errorPanel()
-                : _content(wide),
+            child: AnimatedSwitcher(
+              duration: FlexiCoreMotion.duration(
+                context,
+                FlexiCoreMotion.navigation,
+              ),
+              switchInCurve: FlexiCoreMotion.standardCurve,
+              child: _loading
+                  ? _loadingPanel(key: const ValueKey('workspace-loading'))
+                  : _error != null
+                  ? _errorPanel(key: const ValueKey('workspace-error'))
+                  : _content(wide, key: ValueKey(_selectedModule)),
+            ),
           ),
         ],
       ),
+      bottomNavigationBar: wide
+          ? null
+          : NavigationBar(
+              selectedIndex: _modules.indexWhere(
+                (module) => module.label == _selectedModule,
+              ),
+              onDestinationSelected: (index) {
+                setState(() => _selectedModule = _modules[index].label);
+              },
+              destinations: [
+                for (final module in _modules)
+                  NavigationDestination(
+                    icon: Icon(module.icon),
+                    label: module.label,
+                  ),
+              ],
+            ),
     );
   }
 
   Widget _navigation() {
     final theme = Theme.of(context);
+    final session = context.watch<SessionController>();
+    final organization = _selectedOrganization;
+    final company = _selectedCompany;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 16, 12),
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
+          child: Row(
+            children: [
+              const _BrandMark(size: 44),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'FlexiCore',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    Text(
+                      'Business workspace',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(22, 0, 16, 8),
           child: Text(
             'WORKSPACE',
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: theme.colorScheme.primary,
-              letterSpacing: 1.3,
-              fontWeight: FontWeight.bold,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              letterSpacing: 1.2,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ),
         Expanded(
           child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
             itemCount: _modules.length,
             itemBuilder: (context, index) {
               final module = _modules[index];
               return Padding(
-                padding: const EdgeInsets.only(bottom: 3),
+                padding: const EdgeInsets.only(bottom: 4),
                 child: ListTile(
-                  selected: true,
+                  selected: module.label == _selectedModule,
                   leading: Icon(module.icon),
                   title: Text(module.label),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                   onTap: () {
+                    setState(() => _selectedModule = module.label);
                     if (MediaQuery.sizeOf(context).width < 1050) {
                       Navigator.of(context).pop();
                     }
@@ -922,7 +986,47 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
             },
           ),
         ),
-        const Divider(),
+        if (organization != null || company != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainer,
+                borderRadius: BorderRadius.circular(FlexiCoreRadius.medium),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'ACTIVE WORKSPACE',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      letterSpacing: 0.8,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    company?.name ?? organization?.name ?? '',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleSmall,
+                  ),
+                  if (company != null && organization != null)
+                    Text(
+                      organization.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        const Divider(indent: 16, endIndent: 16),
         ListTile(
           leading: const Icon(Icons.help_outline),
           title: const Text('Workspace help'),
@@ -932,13 +1036,39 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
             'Business transaction modules require their API endpoints.',
           ),
         ),
-        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 17,
+                backgroundColor: theme.colorScheme.primaryContainer,
+                foregroundColor: theme.colorScheme.onPrimaryContainer,
+                child: Text(
+                  (session.user?.email.isNotEmpty ?? false)
+                      ? session.user!.email.substring(0, 1).toUpperCase()
+                      : 'F',
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  session.user?.email ?? 'Signed-in account',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
 
-  Widget _errorPanel() {
+  Widget _errorPanel({Key? key}) {
     return Center(
+      key: key,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
         child: Padding(
@@ -967,12 +1097,86 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     );
   }
 
-  Widget _content(bool wide) {
+  Widget _loadingPanel({Key? key}) {
+    final theme = Theme.of(context);
+    final skeleton = theme.colorScheme.surfaceContainerHigh;
+    Widget block(double height, {double? width}) => Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: skeleton,
+        borderRadius: BorderRadius.circular(FlexiCoreRadius.small),
+      ),
+    );
+
+    return SingleChildScrollView(
+      key: key,
+      padding: const EdgeInsets.all(FlexiCoreSpacing.medium),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1440),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                height: 184,
+                decoration: BoxDecoration(
+                  gradient: FlexiCoreGradients.light,
+                  borderRadius: BorderRadius.circular(FlexiCoreRadius.xLarge),
+                ),
+                padding: const EdgeInsets.all(FlexiCoreSpacing.large),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    block(20, width: 220),
+                    const SizedBox(height: 12),
+                    block(16, width: 300),
+                  ],
+                ),
+              ),
+              const SizedBox(height: FlexiCoreSpacing.large),
+              Wrap(
+                spacing: FlexiCoreSpacing.medium,
+                runSpacing: FlexiCoreSpacing.medium,
+                children: [
+                  for (var index = 0; index < 4; index++)
+                    SizedBox(
+                      width: 240,
+                      child: Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(
+                            FlexiCoreSpacing.medium,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              block(18, width: 120),
+                              const SizedBox(height: 18),
+                              block(28, width: 72),
+                              const SizedBox(height: 12),
+                              block(14, width: 180),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _content(bool wide, {Key? key}) {
     final theme = Theme.of(context);
     final organization = _selectedOrganization;
     final company = _selectedCompany;
 
     return SelectionArea(
+      key: key,
       child: SingleChildScrollView(
         padding: EdgeInsets.all(wide ? 28 : 16),
         child: Center(
@@ -981,290 +1185,314 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Wrap(
-                  alignment: WrapAlignment.spaceBetween,
-                  runSpacing: 12,
-                  spacing: 16,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Business setup',
-                          style: theme.textTheme.headlineMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Manage your organizations and companies.',
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        OutlinedButton.icon(
-                          onPressed: _working ? null : _createOrganization,
-                          icon: const Icon(Icons.add_business_outlined),
-                          label: const Text('New organization'),
-                        ),
-                        FilledButton.icon(
-                          onPressed: _working ? null : _createCompany,
-                          icon: const Icon(Icons.add),
-                          label: const Text('New company'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 28),
-                _workspaceSelectors(),
-                const SizedBox(height: 24),
-                Text('Workspace summary', style: theme.textTheme.titleLarge),
-                const SizedBox(height: 12),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final count = constraints.maxWidth >= 900
-                        ? 4
-                        : constraints.maxWidth >= 560
-                        ? 2
-                        : 1;
-                    final cardWidth =
-                        (constraints.maxWidth - (count - 1) * 12) / count;
-                    return Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: [
-                        SizedBox(
-                          width: cardWidth,
-                          child: _summaryCard(
-                            'Organizations',
-                            '${_organizations.length}',
-                            Icons.apartment_outlined,
-                            'Available to your account',
-                          ),
-                        ),
-                        SizedBox(
-                          width: cardWidth,
-                          child: _summaryCard(
-                            'Companies',
-                            '${_companies.length}',
-                            Icons.business_outlined,
-                            'In the selected organization',
-                          ),
-                        ),
-                        SizedBox(
-                          width: cardWidth,
-                          child: _summaryCard(
-                            'Organization role',
-                            organization?.role ?? 'Not set',
-                            Icons.admin_panel_settings_outlined,
-                            'Access granted by membership',
-                          ),
-                        ),
-                        SizedBox(
-                          width: cardWidth,
-                          child: _summaryCard(
-                            'Company role',
-                            company?.role ?? 'Not set',
-                            Icons.verified_user_outlined,
-                            'Access granted by membership',
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    onPressed: _copySummary,
-                    icon: const Icon(Icons.copy_outlined),
-                    label: const Text('Copy summary'),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  'Organizations and companies',
-                  style: theme.textTheme.titleLarge,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  decoration: const InputDecoration(
-                    labelText: 'Search authorized records',
-                    prefixIcon: Icon(Icons.search),
-                    border: OutlineInputBorder(),
-                  ),
-                  onChanged: (value) => setState(() {
-                    _search = value;
-                    _page = 0;
-                  }),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: _selectedRows.isEmpty
-                          ? null
-                          : () => _copyRows(
-                              _visibleRows()
-                                  .where(
-                                    (row) => _selectedRows.contains(row.id),
-                                  )
-                                  .toList(),
-                            ),
-                      icon: const Icon(Icons.copy),
-                      label: Text('Copy selected (${_selectedRows.length})'),
-                    ),
-                    TextButton.icon(
-                      onPressed: () => _copyRows(_visibleRows()),
-                      icon: const Icon(Icons.table_view_outlined),
-                      label: Text('Copy filtered (${_visibleRows().length})'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                if (_visibleRows().isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Center(
-                      child: Text(
-                        _organizations.isEmpty && _allCompanies.isEmpty
-                            ? 'No authorized organizations or companies yet. Create one to begin.'
-                            : 'No authorized records match this search.',
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  )
-                else
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: DataTable(
-                          sortColumnIndex: const {
-                            'type': 1,
-                            'name': 2,
-                            'slug': 3,
-                            'parent': 4,
-                            'industry': 5,
-                            'role': 6,
-                          }[_sortColumn],
-                          sortAscending: _sortAscending,
-                          onSelectAll: (selected) => setState(() {
-                            if (selected == true) {
-                              _selectedRows.addAll(
-                                _currentPageRows.map((row) => row.id),
-                              );
-                            } else {
-                              _selectedRows.removeAll(
-                                _currentPageRows.map((row) => row.id),
-                              );
-                            }
-                          }),
-                          columns: [
-                            DataColumn(
-                              label: const Text('Type'),
-                              onSort: (_, _) => _sortRows('type'),
-                            ),
-                            DataColumn(
-                              label: const Text('Name'),
-                              onSort: (_, _) => _sortRows('name'),
-                            ),
-                            DataColumn(
-                              label: const Text('Slug'),
-                              onSort: (_, _) => _sortRows('slug'),
-                            ),
-                            DataColumn(
-                              label: const Text('Organization'),
-                              onSort: (_, _) => _sortRows('parent'),
-                            ),
-                            DataColumn(
-                              label: const Text('Industry key'),
-                              onSort: (_, _) => _sortRows('industry'),
-                            ),
-                            DataColumn(
-                              label: const Text('Role'),
-                              onSort: (_, _) => _sortRows('role'),
-                            ),
-                            const DataColumn(label: Text('')),
-                          ],
-                          rows: [
-                            for (final row in _currentPageRows)
-                              DataRow(
-                                selected: _selectedRows.contains(row.id),
-                                onSelectChanged: (selected) => setState(() {
-                                  if (selected == true) {
-                                    _selectedRows.add(row.id);
-                                  } else {
-                                    _selectedRows.remove(row.id);
-                                  }
-                                }),
-                                cells: [
-                                  DataCell(Text(row.type)),
-                                  DataCell(Text(row.name)),
-                                  DataCell(SelectableText(row.slug)),
-                                  DataCell(Text(row.parent)),
-                                  DataCell(Text(row.industry)),
-                                  DataCell(Text(row.role)),
-                                  DataCell(
-                                    IconButton(
-                                      tooltip: 'Copy row',
-                                      onPressed: () => _copyRows([row]),
-                                      icon: const Icon(Icons.copy_outlined),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                          ],
-                        ),
-                      ),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
+                _workspaceHero(theme, organization, company),
+                const SizedBox(height: FlexiCoreSpacing.large),
+                if (_selectedModule == 'Overview') ...[
+                  _workspaceSelectors(),
+                  const SizedBox(height: FlexiCoreSpacing.large),
+                  Text('Workspace summary', style: theme.textTheme.titleLarge),
+                  const SizedBox(height: FlexiCoreSpacing.small),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final count = constraints.maxWidth >= 1200
+                          ? 4
+                          : constraints.maxWidth >= 850
+                          ? 3
+                          : constraints.maxWidth >= 300
+                          ? 2
+                          : 1;
+                      final cardWidth =
+                          (constraints.maxWidth - (count - 1) * 12) / count;
+                      return Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
                         children: [
-                          Text(
-                            'Page ${_page + 1} of ${(_visibleRows().length / _pageSize).ceil().clamp(1, 100000)} · '
-                            '${_visibleRows().length} loaded record(s)',
-                          ),
-                          IconButton(
-                            tooltip: 'Previous page',
-                            onPressed: _page == 0
-                                ? null
-                                : () => setState(() => _page--),
-                            icon: const Icon(Icons.chevron_left),
-                          ),
-                          IconButton(
-                            tooltip: 'Next page',
-                            onPressed:
-                                (_page + 1) * _pageSize >= _visibleRows().length
-                                ? null
-                                : () => setState(() => _page++),
-                            icon: const Icon(Icons.chevron_right),
-                          ),
-                          if (_hasMoreOrganizations || _hasMoreCompanies)
-                            TextButton(
-                              onPressed: _working ? null : _loadMore,
-                              child: Text(
-                                _working ? 'Loading...' : 'Load more',
-                              ),
+                          SizedBox(
+                            width: cardWidth,
+                            child: _summaryCard(
+                              'Organizations',
+                              '${_organizations.length}',
+                              Icons.apartment_outlined,
+                              'Loaded for your account',
                             ),
+                          ),
+                          SizedBox(
+                            width: cardWidth,
+                            child: _summaryCard(
+                              'Companies',
+                              '${_companies.length}',
+                              Icons.business_outlined,
+                              'Loaded for selected organization',
+                            ),
+                          ),
+                          SizedBox(
+                            width: cardWidth,
+                            child: _summaryCard(
+                              'Organization role',
+                              organization?.role ?? 'Not set',
+                              Icons.admin_panel_settings_outlined,
+                              'Access granted by membership',
+                            ),
+                          ),
+                          SizedBox(
+                            width: cardWidth,
+                            child: _summaryCard(
+                              'Company role',
+                              company?.role ?? 'Not set',
+                              Icons.verified_user_outlined,
+                              'Access granted by membership',
+                            ),
+                          ),
                         ],
+                      );
+                    },
+                  ),
+                  if (_hasMoreOrganizations || _hasMoreCompanies)
+                    Padding(
+                      padding: const EdgeInsets.only(
+                        top: FlexiCoreSpacing.small,
+                      ),
+                      child: Text(
+                        'Summary counts reflect loaded records. Load more in the directory to retrieve additional authorized records.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: _copySummary,
+                      icon: const Icon(Icons.copy_outlined),
+                      label: const Text('Copy summary'),
+                    ),
+                  ),
+                  const SizedBox(height: FlexiCoreSpacing.large),
+                  Text('Get started', style: theme.textTheme.titleLarge),
+                  const SizedBox(height: FlexiCoreSpacing.small),
+                  _gettingStarted(),
+                ],
+                if (_selectedModule == 'Directory') ...[
+                  _workspaceSelectors(),
+                  const SizedBox(height: FlexiCoreSpacing.large),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Organizations and companies',
+                          style: theme.textTheme.titleLarge,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Refresh workspace',
+                        onPressed: _loading || _working ? null : _load,
+                        icon: const Icon(Icons.refresh),
                       ),
                     ],
                   ),
-                const SizedBox(height: 28),
-                Text('Get started', style: theme.textTheme.titleLarge),
-                const SizedBox(height: 12),
-                _gettingStarted(),
+                  const SizedBox(height: FlexiCoreSpacing.small),
+                  TextField(
+                    decoration: const InputDecoration(
+                      labelText: 'Search authorized records',
+                      prefixIcon: Icon(Icons.search),
+                    ),
+                    onChanged: (value) => setState(() {
+                      _search = value;
+                      _page = 0;
+                    }),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: _selectedRows.isEmpty
+                            ? null
+                            : () => _copyRows(
+                                _visibleRows()
+                                    .where(
+                                      (row) => _selectedRows.contains(row.id),
+                                    )
+                                    .toList(),
+                              ),
+                        icon: const Icon(Icons.copy),
+                        label: Text('Copy selected (${_selectedRows.length})'),
+                      ),
+                      TextButton.icon(
+                        onPressed: () => _copyRows(_visibleRows()),
+                        icon: const Icon(Icons.table_view_outlined),
+                        label: Text('Copy filtered (${_visibleRows().length})'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (_visibleRows().isEmpty)
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(FlexiCoreSpacing.xLarge),
+                        child: Center(
+                          child: Column(
+                            children: [
+                              Icon(
+                                _organizations.isEmpty && _allCompanies.isEmpty
+                                    ? Icons.apartment_outlined
+                                    : Icons.search_off_outlined,
+                                size: 32,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                              const SizedBox(height: FlexiCoreSpacing.medium),
+                              Text(
+                                _organizations.isEmpty && _allCompanies.isEmpty
+                                    ? 'No authorized organizations or companies yet.'
+                                    : 'No authorized records match this search.',
+                                textAlign: TextAlign.center,
+                                style: theme.textTheme.titleMedium,
+                              ),
+                              if (_organizations.isEmpty &&
+                                  _allCompanies.isEmpty) ...[
+                                const SizedBox(height: FlexiCoreSpacing.small),
+                                Text(
+                                  'Create an organization to start setting up your workspace.',
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                                const SizedBox(height: FlexiCoreSpacing.medium),
+                                FilledButton.icon(
+                                  onPressed: _working
+                                      ? null
+                                      : _createOrganization,
+                                  icon: const Icon(Icons.add_business_outlined),
+                                  label: const Text('Create organization'),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Card(
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: DataTable(
+                              sortColumnIndex: const {
+                                'type': 1,
+                                'name': 2,
+                                'slug': 3,
+                                'parent': 4,
+                                'industry': 5,
+                                'role': 6,
+                              }[_sortColumn],
+                              sortAscending: _sortAscending,
+                              onSelectAll: (selected) => setState(() {
+                                if (selected == true) {
+                                  _selectedRows.addAll(
+                                    _currentPageRows.map((row) => row.id),
+                                  );
+                                } else {
+                                  _selectedRows.removeAll(
+                                    _currentPageRows.map((row) => row.id),
+                                  );
+                                }
+                              }),
+                              columns: [
+                                DataColumn(
+                                  label: const Text('Type'),
+                                  onSort: (_, _) => _sortRows('type'),
+                                ),
+                                DataColumn(
+                                  label: const Text('Name'),
+                                  onSort: (_, _) => _sortRows('name'),
+                                ),
+                                DataColumn(
+                                  label: const Text('Slug'),
+                                  onSort: (_, _) => _sortRows('slug'),
+                                ),
+                                DataColumn(
+                                  label: const Text('Organization'),
+                                  onSort: (_, _) => _sortRows('parent'),
+                                ),
+                                DataColumn(
+                                  label: const Text('Industry key'),
+                                  onSort: (_, _) => _sortRows('industry'),
+                                ),
+                                DataColumn(
+                                  label: const Text('Role'),
+                                  onSort: (_, _) => _sortRows('role'),
+                                ),
+                                const DataColumn(label: Text('')),
+                              ],
+                              rows: [
+                                for (final row in _currentPageRows)
+                                  DataRow(
+                                    selected: _selectedRows.contains(row.id),
+                                    onSelectChanged: (selected) => setState(() {
+                                      if (selected == true) {
+                                        _selectedRows.add(row.id);
+                                      } else {
+                                        _selectedRows.remove(row.id);
+                                      }
+                                    }),
+                                    cells: [
+                                      DataCell(Text(row.type)),
+                                      DataCell(Text(row.name)),
+                                      DataCell(SelectableText(row.slug)),
+                                      DataCell(Text(row.parent)),
+                                      DataCell(Text(row.industry)),
+                                      DataCell(Text(row.role)),
+                                      DataCell(
+                                        IconButton(
+                                          tooltip: 'Copy row',
+                                          onPressed: () => _copyRows([row]),
+                                          icon: const Icon(Icons.copy_outlined),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Text(
+                              'Page ${_page + 1} of ${(_visibleRows().length / _pageSize).ceil().clamp(1, 100000)} · '
+                              '${_visibleRows().length} loaded record(s)',
+                            ),
+                            IconButton(
+                              tooltip: 'Previous page',
+                              onPressed: _page == 0
+                                  ? null
+                                  : () => setState(() => _page--),
+                              icon: const Icon(Icons.chevron_left),
+                            ),
+                            IconButton(
+                              tooltip: 'Next page',
+                              onPressed:
+                                  (_page + 1) * _pageSize >=
+                                      _visibleRows().length
+                                  ? null
+                                  : () => setState(() => _page++),
+                              icon: const Icon(Icons.chevron_right),
+                            ),
+                            if (_hasMoreOrganizations || _hasMoreCompanies)
+                              TextButton(
+                                onPressed: _working ? null : _loadMore,
+                                child: Text(
+                                  _working ? 'Loading...' : 'Load more',
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                ],
                 const SizedBox(height: 36),
                 Text(
                   'FlexiCore • Business workspace',
@@ -1280,80 +1508,191 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     );
   }
 
+  Widget _workspaceHero(
+    ThemeData theme,
+    Organization? organization,
+    Company? company,
+  ) {
+    final workspaceName = company?.name ?? organization?.name;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(FlexiCoreSpacing.large),
+      decoration: BoxDecoration(
+        gradient: FlexiCoreGradients.primary,
+        borderRadius: BorderRadius.circular(FlexiCoreRadius.xLarge),
+        boxShadow: FlexiCoreElevation.medium,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'FLEXICORE  /  BUSINESS WORKSPACE',
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: FlexiCorePalette.primary100,
+              letterSpacing: 1.1,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: FlexiCoreSpacing.medium),
+          Text(
+            workspaceName ?? 'Workspace overview',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.headlineMedium?.copyWith(
+              color: FlexiCorePalette.lightSurface,
+            ),
+          ),
+          const SizedBox(height: FlexiCoreSpacing.small),
+          Text(
+            workspaceName == null
+                ? 'Create an organization, then add a company to set up your workspace.'
+                : 'Manage the organizations and companies you are authorized to access.',
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: FlexiCorePalette.primary50,
+            ),
+          ),
+          const SizedBox(height: FlexiCoreSpacing.large),
+          Wrap(
+            spacing: FlexiCoreSpacing.small,
+            runSpacing: FlexiCoreSpacing.small,
+            children: [
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: FlexiCorePalette.lightSurface,
+                  foregroundColor: FlexiCorePalette.primary800,
+                ),
+                onPressed: _working ? null : _createOrganization,
+                icon: const Icon(Icons.add_business_outlined),
+                label: const Text('New organization'),
+              ),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: FlexiCorePalette.lightSurface,
+                  side: const BorderSide(color: FlexiCorePalette.primary100),
+                ),
+                onPressed: _working || organization == null
+                    ? null
+                    : _createCompany,
+                icon: const Icon(Icons.add),
+                label: const Text('New company'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _workspaceSelectors() {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final compact = constraints.maxWidth < 650;
-            final organizationField = DropdownButtonFormField<String>(
-              key: ValueKey('org-$_selectedOrganizationId'),
-              initialValue: _selectedOrganizationId,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                labelText: 'Organization',
-                prefixIcon: Icon(Icons.apartment_outlined),
-                border: OutlineInputBorder(),
-              ),
-              hint: const Text('Select an organization'),
-              items: _organizations
-                  .map(
-                    (o) => DropdownMenuItem(
-                      value: o.id,
-                      child: Text(o.name, overflow: TextOverflow.ellipsis),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (value) {
-                setState(() {
-                  _selectedOrganizationId = value;
-                  final matches = _companies;
-                  _selectedCompanyId = matches.isEmpty
-                      ? null
-                      : matches.first.id;
-                });
-              },
-            );
-            final companyField = DropdownButtonFormField<String>(
-              key: ValueKey('co-$_selectedOrganizationId-$_selectedCompanyId'),
-              initialValue: _companies.any((c) => c.id == _selectedCompanyId)
-                  ? _selectedCompanyId
-                  : null,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                labelText: 'Active company',
-                prefixIcon: Icon(Icons.business_outlined),
-                border: OutlineInputBorder(),
-              ),
-              hint: const Text('Select a company'),
-              items: _companies
-                  .map(
-                    (c) => DropdownMenuItem(
-                      value: c.id,
-                      child: Text(c.name, overflow: TextOverflow.ellipsis),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (value) => setState(() => _selectedCompanyId = value),
-            );
-            if (compact) {
-              return Column(
-                children: [
-                  organizationField,
-                  const SizedBox(height: 12),
-                  companyField,
-                ],
-              );
-            }
-            return Row(
+        padding: const EdgeInsets.all(FlexiCoreSpacing.large),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Expanded(child: organizationField),
-                const SizedBox(width: 16),
-                Expanded(child: companyField),
+                Icon(
+                  Icons.workspaces_outline,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: FlexiCoreSpacing.small),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Active workspace',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      Text(
+                        'Choose the organization and company you are working in.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ],
-            );
-          },
+            ),
+            const SizedBox(height: FlexiCoreSpacing.medium),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final compact = constraints.maxWidth < 650;
+                final organizationField = DropdownButtonFormField<String>(
+                  key: ValueKey('org-$_selectedOrganizationId'),
+                  initialValue: _selectedOrganizationId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Organization',
+                    prefixIcon: Icon(Icons.apartment_outlined),
+                    border: OutlineInputBorder(),
+                  ),
+                  hint: const Text('Select an organization'),
+                  items: _organizations
+                      .map(
+                        (o) => DropdownMenuItem(
+                          value: o.id,
+                          child: Text(o.name, overflow: TextOverflow.ellipsis),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedOrganizationId = value;
+                      final matches = _companies;
+                      _selectedCompanyId = matches.isEmpty
+                          ? null
+                          : matches.first.id;
+                    });
+                  },
+                );
+                final companyField = DropdownButtonFormField<String>(
+                  key: ValueKey(
+                    'co-$_selectedOrganizationId-$_selectedCompanyId',
+                  ),
+                  initialValue:
+                      _companies.any((c) => c.id == _selectedCompanyId)
+                      ? _selectedCompanyId
+                      : null,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Active company',
+                    prefixIcon: Icon(Icons.business_outlined),
+                    border: OutlineInputBorder(),
+                  ),
+                  hint: const Text('Select a company'),
+                  items: _companies
+                      .map(
+                        (c) => DropdownMenuItem(
+                          value: c.id,
+                          child: Text(c.name, overflow: TextOverflow.ellipsis),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) =>
+                      setState(() => _selectedCompanyId = value),
+                );
+                if (compact) {
+                  return Column(
+                    children: [
+                      organizationField,
+                      const SizedBox(height: 12),
+                      companyField,
+                    ],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: organizationField),
+                    const SizedBox(width: 16),
+                    Expanded(child: companyField),
+                  ],
+                );
+              },
+            ),
+          ],
         ),
       ),
     );
@@ -1366,31 +1705,73 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     String description,
   ) {
     final theme = Theme.of(context);
+    final countValue = int.tryParse(value);
+    final valueStyle = theme.textTheme.headlineSmall?.copyWith(
+      fontWeight: FontWeight.w700,
+    );
+    final metric = countValue == null
+        ? Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: valueStyle,
+          )
+        : TweenAnimationBuilder<int>(
+            tween: IntTween(begin: 0, end: countValue),
+            duration: FlexiCoreMotion.duration(
+              context,
+              FlexiCoreMotion.chartEntrance,
+            ),
+            curve: FlexiCoreMotion.standardCurve,
+            builder: (context, animatedValue, _) => Semantics(
+              label: '$title $animatedValue',
+              child: Text(
+                '$animatedValue',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: valueStyle,
+              ),
+            ),
+          );
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(FlexiCoreSpacing.medium),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Icon(icon, color: theme.colorScheme.primary),
-                const SizedBox(width: 8),
-                Expanded(child: Text(title, style: theme.textTheme.titleSmall)),
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(FlexiCoreRadius.small),
+                  ),
+                  child: Icon(
+                    icon,
+                    size: 20,
+                    color: theme.colorScheme.onPrimaryContainer,
+                  ),
+                ),
+                const SizedBox(width: FlexiCoreSpacing.small),
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleSmall,
+                  ),
+                ),
               ],
             ),
-            const SizedBox(height: 18),
-            Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 6),
+            const SizedBox(height: FlexiCoreSpacing.medium),
+            metric,
+            const SizedBox(height: FlexiCoreSpacing.xSmall),
             Text(
               description,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -1507,6 +1888,34 @@ class _WorkspaceModule {
 
   final String label;
   final IconData icon;
+}
+
+class _BrandMark extends StatelessWidget {
+  const _BrandMark({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [theme.colorScheme.primary, theme.colorScheme.tertiary],
+        ),
+        borderRadius: BorderRadius.circular(FlexiCoreRadius.medium),
+      ),
+      child: Icon(
+        Icons.grid_view_rounded,
+        size: size * 0.52,
+        color: theme.colorScheme.onPrimary,
+      ),
+    );
+  }
 }
 
 class _WorkspaceDataRow {

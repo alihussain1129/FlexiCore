@@ -1,0 +1,28 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>FlexiCore.ActivationEngine</AssemblyName>
+    <RootNamespace>FlexiCore.ActivationEngine</RootNamespace>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FlexiCore.ActivationServices\FlexiCore.ActivationServices.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Services\**\*.cs" />
+    <Compile Include="Services\WpfDialogService.cs" />
+    <Compile Remove="ViewModels\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="System.IO" />
+  </ItemGroup>
+
+</Project>

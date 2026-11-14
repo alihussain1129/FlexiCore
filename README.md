@@ -7,9 +7,12 @@ FlexiCore is an in-progress, multi-tenant business application built with Flutte
 ### Implemented
 
 - ASP.NET Core API with PostgreSQL-backed identity, refresh-token rotation, audit events and tenancy.
+- Flutter client with responsive Android, Windows and Linux platform targets.
 - Hosted mode uses the existing registration/sign-in and access/refresh token flows. The Docker Compose deployment runs Hosted mode.
 - Local mode has server-side license enforcement, an offline installation request code, license-file import, and a one-time, loopback-only first-owner setup followed by the normal persistent sign-in session.
 - The owner-only `FlexiCore.LicenseTool` can issue installation-bound licenses and verify them. It is not shipped with the application.
+- The recovered owner Activation Engine now has shared .NET 10 services/viewmodels, the existing WPF Windows reference UI, an Avalonia desktop UI, and an Avalonia Android app with Storage Access Framework document I/O and Android Keystore non-exportable signing keys.
+- The Flutter ERP workspace and Avalonia Activation Engine use aligned FlexiCore design tokens centered on the official deep-teal `#125352` brand, with mint/aqua accents and coordinated light/dark palettes.
 - Organizations and companies can be created, selected, listed, and persisted through authenticated, tenant-scoped APIs.
 - The workspace has searchable, sortable and paginated organization/company tables, row selection, TSV clipboard copy for selected/filtered rows, and a copyable workspace summary.
 - Data exchange currently covers only organizations and companies:
@@ -25,6 +28,8 @@ FlexiCore is an in-progress, multi-tenant business application built with Flutte
 - No financial records exist, so currency/date formatting and financial totals are not applicable yet. Data exchange does not currently provide individual-cell clipboard selection, arbitrary business-entity imports, or DOCX invoices, purchase documents, product catalogs or financial reports.
 - There are no saved document-branding/layout settings or customization settings that alter business workflows.
 - No production public license keys are embedded. The Local license flow and owner tool are exercised with test keys in automated tests, but a customer-issued license cannot be accepted by a production build until an approved public key set is generated and embedded. Never use test keys for a deployment.
+- The Android owner app is development-mode and uses non-exportable device-bound keys plus imported passphrase-encrypted `.p8` keys. Android Keystore hardware backing is not claimed, and a production-signed Release APK is not available without owner signing credentials.
+- Android owner data remains in app-private storage with Android app backup disabled; key and ledger backups must be exported explicitly through SAF.
 - Backup and recovery steps are documented below, but restore drills, fresh-machine installation and end-to-end offline customer activation have not been qualified as production procedures.
 - Local setup and data exchange are covered by focused tests; manually exercising the complete desktop import/export experience against a deployed Windows application remains outstanding.
 
@@ -34,8 +39,9 @@ See [DECISIONS.md](./DECISIONS.md) for architectural choices, security boundarie
 
 - .NET SDK 10.0.401 (see `global.json`)
 - Flutter and Dart versions compatible with `client/pubspec.yaml`
+- Clang, CMake, Ninja, GTK 3 and libsecret development libraries, plus a desktop keyring service, to run the Linux client
 - Docker Desktop with the PostgreSQL test containers available
-- Windows 10/11 for the Windows desktop target
+- Windows 10/11 for the Windows desktop target; an Android device/emulator for Android testing
 
 ## Start the Hosted development stack (PowerShell)
 
