@@ -49,7 +49,7 @@ public sealed class LedgerRestoreServiceTests
         IssueThree(o);
         var (backup, original) = Backup(o);
         var lines = File.ReadAllLines(o.Paths.LedgerPath);
-        var truncated = Encoding.UTF8.GetBytes(lines[0] + Environment.NewLine);
+        var truncated = Encoding.UTF8.GetBytes(lines[0] + "\n");
         File.WriteAllBytes(o.Paths.LedgerPath, truncated);
 
         var result = Svc(o).Restore(backup);

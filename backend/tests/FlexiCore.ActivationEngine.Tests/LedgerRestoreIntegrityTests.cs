@@ -117,7 +117,7 @@ public sealed class LedgerRestoreIntegrityTests
 
         var result = Svc(o).Restore(backup);
 
-        var nl = Environment.NewLine;
+        var nl = "\n";
         Assert.Equal(2, result.Added);
         Assert.Equal(0, result.AlreadyPresent);
         Assert.Equal(3, result.TotalAfter);
@@ -141,7 +141,7 @@ public sealed class LedgerRestoreIntegrityTests
         Assert.Equal(0, result.AlreadyPresent);
         Assert.Equal(3, result.TotalAfter);
         Assert.Equal(
-            before.Concat(Encoding.UTF8.GetBytes(good[0] + Environment.NewLine)).ToArray(),
+            before.Concat(Encoding.UTF8.GetBytes(good[0] + "\n")).ToArray(),
             File.ReadAllBytes(o.Paths.LedgerPath));
     }
 
@@ -156,7 +156,7 @@ public sealed class LedgerRestoreIntegrityTests
 
         Svc(o).Restore(WriteBackup(o, spaced));
 
-        Assert.Equal(spaced + Environment.NewLine, File.ReadAllText(o.Paths.LedgerPath));
+        Assert.Equal(spaced + "\n", File.ReadAllText(o.Paths.LedgerPath));
     }
 
     [Fact]
