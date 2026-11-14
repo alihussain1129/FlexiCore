@@ -428,4 +428,101 @@ public sealed class LicenseEndToEndTests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.OK, (await SendAsync(second, HttpMethod.Get, StatusUrl)).StatusCode);
         Assert.Equal(licenseBytes, await File.ReadAllBytesAsync(w.StoredPath));
     }
+
+    private async Task<Host> StartRevocationHostAsync(Workspace w)
+    {
+        var time = new FixedTimeProvider(Now);
+        Directory.CreateDirectory(w.LicenseDir);
+
+        void Configure(IServiceCollection services)
+        {
+            services.RemoveAll<LicenseService>();
+            var trusted = ProductionKeyLoader.ParseKeySet(File.ReadAllBytes(w.TrustFile));
+            var revocations = new RevocationListService(
+                new FileRevocationListStore(w.LicenseDir),
+                new SignedRevocationListVerifier(trusted),
+                time);
+            services.AddSingleton(new LicenseService(
+                new FileLicenseStore(w.LicenseDir),
+                new LicenseVerifier(trusted, time),
+                time,
+                new MachineInstallationIdentity(),
+                requireBinding: true,
+                revocations: revocations));
+        }
+
+        var names = new[] { "Deployment__Mode", "License__Directory", "License__ImportPermitPerMinute", "License__LocalActivationAllowedRemoteAddresses" };
+        var saved = names.Select(n => (Name: n, Old: Environment.GetEnvironmentVariable(n))).ToArray();
+        try
+        {
+            Environment.SetEnvironmentVariable("Deployment__Mode", "Local");
+            Environment.SetEnvironmentVariable("License__Directory", w.LicenseDir);
+            Environment.SetEnvironmentVariable("License__ImportPermitPerMinute", "100");
+            Environment.SetEnvironmentVariable("License__LocalActivationAllowedRemoteAddresses", "172.18.0.1");
+
+            var app = await Scenario.StartWithUserAsync(postgres, "100000", Configure);
+            var token = (await Scenario.LoginAsync(app)).AccessToken;
+            return new Host(app, token);
+        }
+        finally
+        {
+            foreach (var (name, old) in saved) Environment.SetEnvironmentVariable(name, old);
+        }
+    }
+
+    [Fact]
+    public async Task A_signed_revocation_snapshot_revokes_an_active_license_and_enforcement_blocks_business_routes()
+    {
+        const string RevocationsUrl = "/api/v1/license/revocations";
+        using var w = new Workspace();
+        Provision(w);
+        var machineId = new MachineInstallationIdentity().InstallationId;
+        Assert.False(string.IsNullOrEmpty(machineId));
+        var licenseBytes = await File.ReadAllBytesAsync(IssueLicense(w, "FC-E2E-REVOKE", machineId).LicensePath);
+        var trusted = ProductionKeyLoader.ParseKeySet(File.ReadAllBytes(w.TrustFile));
+
+        byte[] baseline, revoking, rollback;
+        using (var signer = w.Keys.OpenSigner(KeyId, Pass))
+        {
+            baseline = RevocationSnapshotIssuer.Issue(trusted, signer, Now.AddDays(-1));
+            revoking = RevocationSnapshotIssuer.Issue(trusted, signer, Now.AddHours(-2),
+                previousSnapshot: baseline, revokeLicenseId: "FC-E2E-REVOKE", reason: "test revocation");
+            rollback = RevocationSnapshotIssuer.Issue(trusted, signer, Now.AddHours(-1));
+        }
+
+        var text = Encoding.UTF8.GetString(revoking);
+        var marker = "\"signature\":\"";
+        var at = text.LastIndexOf(marker, StringComparison.Ordinal) + marker.Length;
+        var tampered = Encoding.UTF8.GetBytes(text[..at] + (text[at] == 'A' ? 'B' : 'A') + text[(at + 1)..]);
+
+        await using (var first = await StartRevocationHostAsync(w))
+        {
+            Assert.Equal(HttpStatusCode.OK, (await SendAsync(first, HttpMethod.Put, RevocationsUrl, baseline)).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await SendAsync(first, HttpMethod.Put, ImportUrl, licenseBytes)).StatusCode);
+            Assert.Equal("valid", await StateAsync(first));
+            Assert.Equal((HttpStatusCode.OK, (string?)null), await BusinessRouteAsync(first));
+
+            // A snapshot with a broken signature changes nothing.
+            Assert.Equal(HttpStatusCode.UnprocessableEntity, (await SendAsync(first, HttpMethod.Put, RevocationsUrl, tampered)).StatusCode);
+            Assert.Equal("valid", await StateAsync(first));
+
+            // The genuine snapshot revokes the license and enforcement blocks business routes.
+            Assert.Equal(HttpStatusCode.OK, (await SendAsync(first, HttpMethod.Put, RevocationsUrl, revoking)).StatusCode);
+            Assert.Equal("revoked", await StateAsync(first));
+            Assert.Equal((HttpStatusCode.Forbidden, "revoked"), await BusinessRouteAsync(first));
+
+            // A later snapshot that drops the revocation is refused and the license stays revoked.
+            Assert.Equal(HttpStatusCode.Conflict, (await SendAsync(first, HttpMethod.Put, RevocationsUrl, rollback)).StatusCode);
+            Assert.Equal("revoked", await StateAsync(first));
+
+            // The revoked license cannot be installed again, and the stored file is untouched.
+            Assert.Equal(HttpStatusCode.UnprocessableEntity, (await SendAsync(first, HttpMethod.Put, ImportUrl, licenseBytes)).StatusCode);
+            Assert.Equal(licenseBytes, await File.ReadAllBytesAsync(w.StoredPath));
+        }
+
+        // Restart: the revocation was persisted and still blocks.
+        await using var second = await StartRevocationHostAsync(w);
+        Assert.Equal("revoked", await StateAsync(second));
+        Assert.Equal((HttpStatusCode.Forbidden, "revoked"), await BusinessRouteAsync(second));
+    }
 }
