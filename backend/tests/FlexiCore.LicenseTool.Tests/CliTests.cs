@@ -19,10 +19,14 @@ public sealed class CliTests
     }
 
     private static string[] IssueArgs(string key, string output, string expires = "2027-01-01", params string[] extra)
+        => IssueArgsWithTrustedSet(key, output, expires, Path.ChangeExtension(key, ".public.json"), extra);
+
+    private static string[] IssueArgsWithTrustedSet(
+        string key, string output, string expires, string publicKeys, params string[] extra)
     {
         var args = new List<string>
         {
-            "issue", "--key", key, "--license-id", "LIC-0007", "--licensee", "Test Customer",
+            "issue", "--key", key, "--public-keys", publicKeys, "--license-id", "LIC-0007", "--licensee", "Test Customer",
             "--not-before", "2026-01-01", "--expires", expires, "--installations", "3", "--out", output,
         };
         args.AddRange(extra);
@@ -39,6 +43,7 @@ public sealed class CliTests
 
         var issue = new FakeConsole(Pass);
         Assert.Equal(0, Run(issue, IssueArgs(key, license)));
+        Assert.Contains("trust check: passed", issue.AllOutput, StringComparison.Ordinal);
 
         var ok = new FakeConsole();
         Assert.Equal(0, Run(ok, "verify", license, "--public-keys", pub, "--at", "2026-06-01"));
@@ -152,6 +157,74 @@ public sealed class CliTests
     }
 
     [Fact]
+    public void Issue_requires_a_trusted_keyset()
+    {
+        using var dir = new TempDir();
+        var key = KeyGen(dir);
+        var license = dir.Combine("license.lic");
+        var console = new FakeConsole(Pass);
+
+        var code = Run(console,
+            "issue", "--key", key, "--license-id", "LIC-1", "--licensee", "Test Customer",
+            "--expires", "2027-01-01", "--out", license);
+
+        Assert.Equal(1, code);
+        Assert.Contains("Missing --public-keys", console.AllOutput, StringComparison.Ordinal);
+        Assert.False(File.Exists(license));
+    }
+
+    [Fact]
+    public void Issue_refuses_a_missing_trusted_keyset_without_writing_output()
+    {
+        using var dir = new TempDir();
+        var key = KeyGen(dir);
+        var license = dir.Combine("license.lic");
+        var missingKeyset = dir.Combine("missing-keyset.json");
+        var console = new FakeConsole(Pass);
+
+        var code = Run(console, IssueArgsWithTrustedSet(key, license, "2027-01-01", missingKeyset));
+
+        Assert.Equal(1, code);
+        Assert.Contains("Key set file not found", console.AllOutput, StringComparison.Ordinal);
+        Assert.False(File.Exists(license));
+    }
+
+    [Fact]
+    public void Issue_refuses_a_malformed_trusted_keyset_without_writing_output()
+    {
+        using var dir = new TempDir();
+        var key = KeyGen(dir);
+        var license = dir.Combine("license.lic");
+        var malformedKeyset = dir.Combine("malformed-keyset.json");
+        File.WriteAllText(malformedKeyset, "{ not a key set }");
+        var console = new FakeConsole(Pass);
+
+        var code = Run(console, IssueArgsWithTrustedSet(key, license, "2027-01-01", malformedKeyset));
+
+        Assert.Equal(1, code);
+        Assert.Contains("not a valid key set", console.AllOutput, StringComparison.Ordinal);
+        Assert.False(File.Exists(license));
+    }
+
+    [Fact]
+    public void Issue_refuses_a_signer_that_does_not_match_the_trusted_keyset()
+    {
+        using var signerDir = new TempDir();
+        using var otherDir = new TempDir();
+        var key = KeyGen(signerDir);
+        KeyGen(otherDir);
+        var license = signerDir.Combine("license.lic");
+        var console = new FakeConsole(Pass);
+
+        var code = Run(console, IssueArgsWithTrustedSet(
+            key, license, "2027-01-01", otherDir.Combine("fc-test-a.public.json")));
+
+        Assert.Equal(2, code);
+        Assert.Contains("does not exactly match", console.AllOutput, StringComparison.Ordinal);
+        Assert.False(File.Exists(license));
+    }
+
+    [Fact]
     public void Issue_requires_an_explicit_expiry_and_never_makes_a_perpetual_license_by_default()
     {
         using var dir = new TempDir();
@@ -159,7 +232,8 @@ public sealed class CliTests
         var license = dir.Combine("license.lic");
 
         var code = Run(new FakeConsole(Pass),
-            "issue", "--key", key, "--license-id", "LIC-1", "--licensee", "X", "--out", license);
+            "issue", "--key", key, "--public-keys", dir.Combine("fc-test-a.public.json"),
+            "--license-id", "LIC-1", "--licensee", "X", "--out", license);
 
         Assert.Equal(1, code);
         Assert.False(File.Exists(license));

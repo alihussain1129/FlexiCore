@@ -45,6 +45,12 @@ public sealed class LicenseStoreTests : IDisposable
         var bytes = SomeBytes(300);
         await store.WriteAsync(bytes, CancellationToken.None);
         Assert.Equal(bytes, await store.ReadAsync(CancellationToken.None));
+
+        if (!OperatingSystem.IsWindows())
+        {
+            var mode = File.GetUnixFileMode(Path.Combine(_dir, FileLicenseStore.FileName));
+            Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, mode);
+        }
     }
 
     [Fact]

@@ -269,7 +269,7 @@ public sealed class NavigationTests
         var vm = new MainViewModel(new FakeDialogs(), o.Paths, o.Time);
 
         Assert.Equal(
-            new[] { "Dashboard", "Customers", "Licenses", "Activate Installation", "Issue License",
+            new[] { "Dashboard", "Customers", "Activation Requests", "Licenses", "Activate Installation", "Issue License",
                     "Signing Keys", "Issuance History", "Settings", "Help" },
             vm.Items.Select(i => i.Title).ToArray());
         Assert.Equal(vm.Items.Count, vm.Items.Select(i => i.Page).Distinct().Count());
@@ -311,6 +311,7 @@ public sealed class NavigationTests
         var issue = Assert.IsType<IssueViewModel>(
             vm.Items.Single(item => item.Title == "Issue License").Page);
         Assert.True(issue.RequireRequestCode);
+        Assert.True(issue.RequireApprovedRequest);
         Assert.NotNull(issue.KeyManager);
 
         var keys = Assert.IsType<KeysViewModel>(

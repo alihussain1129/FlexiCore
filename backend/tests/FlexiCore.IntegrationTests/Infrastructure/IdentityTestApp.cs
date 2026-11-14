@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
+using FlexiCore.Tenancy;
 
 namespace FlexiCore.IntegrationTests.Infrastructure;
 
@@ -30,7 +31,8 @@ public sealed class IdentityTestApp : IAsyncDisposable
     /// <param name="configureServices">Optional test-only service overrides (for example a log-capturing provider).</param>
     public static async Task<IdentityTestApp> StartAsync(
         PostgresFixture postgres, string? registrationEnabled = "true", string rateLimitPerMinute = "100000",
-        Action<IServiceCollection>? configureServices = null, string tenancyCreateLimitPerMinute = "100000")
+        Action<IServiceCollection>? configureServices = null, string tenancyCreateLimitPerMinute = "100000",
+        bool useProductionEntitlements = false)
     {
         var db = await postgres.CreateDatabaseAsync();
         await new MigrationRunner(db.OwnerConnectionString).RunAsync();
@@ -44,7 +46,12 @@ public sealed class IdentityTestApp : IAsyncDisposable
                 ["Identity:RateLimit:PermitPerMinute"] = rateLimitPerMinute,
                 ["Tenancy:RateLimit:CreatePermitPerMinute"] = tenancyCreateLimitPerMinute
             },
-            configureServices);
+            services =>
+            {
+                configureServices?.Invoke(services);
+                if (!useProductionEntitlements)
+                    services.AddSingleton<IModuleAccessPolicy, AllowAllTestEntitlements>();
+            });
 
         return new IdentityTestApp(db, factory);
     }
@@ -88,6 +95,16 @@ public sealed class IdentityTestApp : IAsyncDisposable
         Client.Dispose();
         await _factory.DisposeAsync();
     }
+}
+
+internal sealed class AllowAllTestEntitlements : IModuleAccessPolicy
+{
+    public Task<ModuleAccessDecision> CheckAsync(Guid userId, Guid organizationId, string module, string feature,
+        string? correlationId, CancellationToken cancellationToken) => Task.FromResult(new ModuleAccessDecision(true));
+
+    public Task<ModuleAccessDecision> CheckWithinAsync(FlexiCore.Tenancy.TenantScope scope, Guid userId,
+        Guid organizationId, string module, string feature, string? correlationId, CancellationToken cancellationToken) =>
+        Task.FromResult(new ModuleAccessDecision(true));
 }
 
 

@@ -22,7 +22,8 @@ public sealed class IssueLedgerAppendIntegrityTests
 
     private static string[] Args(string key, string output, string ledger, string id) => new[]
     {
-        "issue", "--key", key, "--license-id", id, "--licensee", "Test Customer",
+        "issue", "--key", key, "--public-keys", Path.ChangeExtension(key, ".public.json"),
+        "--license-id", id, "--licensee", "Test Customer",
         "--not-before", "2026-01-01", "--expires", "2027-01-01", "--installations", "3",
         "--out", output, "--ledger", ledger,
     };

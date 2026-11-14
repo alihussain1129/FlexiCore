@@ -30,6 +30,8 @@
     <ProjectReference Include="..\..\src\FlexiCore.Identity\FlexiCore.Identity.csproj" />
     <ProjectReference Include="..\..\src\FlexiCore.Migrations\FlexiCore.Migrations.csproj" />
     <ProjectReference Include="..\..\src\FlexiCore.Tenancy\FlexiCore.Tenancy.csproj" />
+    <ProjectReference Include="..\..\tools\FlexiCore.ActivationServices\FlexiCore.ActivationServices.csproj" />
+    <ProjectReference Include="..\..\tools\FlexiCore.LicenseTool.Core\FlexiCore.LicenseTool.Core.csproj" />
   </ItemGroup>
 
 </Project>

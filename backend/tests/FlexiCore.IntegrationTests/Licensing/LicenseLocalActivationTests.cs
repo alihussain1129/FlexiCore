@@ -72,13 +72,14 @@ public sealed class LicenseLocalActivationTests(PostgresFixture postgres)
                 new FileLicenseStore(dir), new LicenseVerifier(new[] { signer.Trusted() }, time), time));
         }
 
-        var names = new[] { "Deployment__Mode", "License__Directory", "License__ImportPermitPerMinute" };
+        var names = new[] { "Deployment__Mode", "License__Directory", "License__ImportPermitPerMinute", "License__LocalActivationAllowedRemoteAddresses" };
         var saved = names.Select(n => (Name: n, Old: Environment.GetEnvironmentVariable(n))).ToArray();
         try
         {
             Environment.SetEnvironmentVariable("Deployment__Mode", local ? "Local" : null);
             Environment.SetEnvironmentVariable("License__Directory", local ? dir : null);
             Environment.SetEnvironmentVariable("License__ImportPermitPerMinute", local ? "100" : null);
+            Environment.SetEnvironmentVariable("License__LocalActivationAllowedRemoteAddresses", local ? "172.18.0.1" : null);
 
             var app = createUser
                 ? await Scenario.StartWithUserAsync(postgres, "100000", Configure)
@@ -231,6 +232,29 @@ public sealed class LicenseLocalActivationTests(PostgresFixture postgres)
     }
 
     // ---- Local mode: everything else is refused ----
+
+    [Fact]
+    public async Task Local_anonymous_docker_gateway_is_allowed_but_spoofed_requests_are_rejected()
+    {
+        await using var h = await StartAsync(local: true);
+        h.Remote.Value = IPAddress.Parse("172.18.0.1");
+
+        var status = await SendAsync(h, HttpMethod.Get, StatusUrl);
+        Assert.Equal(HttpStatusCode.OK, status.StatusCode);
+
+        var forwarded = await SendAsync(
+            h, HttpMethod.Get, StatusUrl,
+            headers: ("X-Forwarded-For", "203.0.113.5"));
+        Assert.Equal(HttpStatusCode.Unauthorized, forwarded.StatusCode);
+
+        var foreignHost = await SendAsync(
+            h, HttpMethod.Get, StatusUrl, host: "evil.example");
+        Assert.Equal(HttpStatusCode.Unauthorized, foreignHost.StatusCode);
+
+        var import = await SendAsync(h, HttpMethod.Put, ImportUrl, h.Signer.Build(Payload()));
+        Assert.Equal(HttpStatusCode.OK, import.StatusCode);
+        Assert.True(File.Exists(h.StoredPath));
+    }
 
     [Theory]
     [InlineData("GET")]
