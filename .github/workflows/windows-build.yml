@@ -1,0 +1,32 @@
+name: windows-build
+
+on:
+  push:
+    branches: [redesign-ui]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Build WPF activation engine (Release)
+        run: dotnet build backend/tools/FlexiCore.ActivationEngine -c Release
+
+      - name: Build Avalonia activation app (Release)
+        run: dotnet build backend/tools/FlexiCore.ActivationApp -c Release
+
+      - name: Unit tests
+        run: dotnet test backend/tests/FlexiCore.UnitTests -c Release
+
+      - name: Activation engine tests
+        run: dotnet test backend/tests/FlexiCore.ActivationEngine.Tests -c Release
+
+      - name: License tool tests
+        run: dotnet test backend/tests/FlexiCore.LicenseTool.Tests -c Release
