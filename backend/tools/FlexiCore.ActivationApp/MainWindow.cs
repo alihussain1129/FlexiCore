@@ -762,11 +762,17 @@ internal sealed class ActivationShell : UserControl
         search.TextChanged += (_, _) => { vm.SearchText = search.Text ?? ""; FillResults(); };
         FillResults();
         _page.Children.Add(Warning(vm.Note));
-        _page.Children.Add(ButtonRow(Button("Export ledger backup", async () =>
-        {
-            await vm.ExportBackupAsync();
-            ShowCurrentPage();
-        })));
+        _page.Children.Add(ButtonRow(
+            Button("Export ledger backup", async () =>
+            {
+                await vm.ExportBackupAsync();
+                ShowCurrentPage();
+            }),
+            Button("Restore ledger backup", async () =>
+            {
+                await vm.RestoreBackupAsync();
+                ShowCurrentPage();
+            })));
         AddRefresh(vm);
     }
 

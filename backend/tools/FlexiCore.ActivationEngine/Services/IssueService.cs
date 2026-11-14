@@ -86,9 +86,19 @@ public sealed class IssueService
             throw new LicenseToolException("The owner data folder cannot be created (" + ex.GetType().Name + "). Nothing was issued.", 2);
         }
 
-        var snapshot = LedgerReader.Read(_paths.LedgerPath);
+        // Keep duplicate detection, signing, output creation and ledger append in one transaction.
+        using var ledgerLock = LedgerFileLock.Acquire(_paths.LedgerPath);
+        // Strict capture, the same code path restore uses: a ledger that is not valid UTF-8, cannot be read or is
+        // oversized fails closed. The lenient reader would turn a bad byte into a replacement character and let a
+        // damaged record pass as readable.
+        var snapshot = LedgerReader.CaptureLive(_paths.LedgerPath, ledgerLock);
         if (snapshot.Problem is not null)
             throw new LicenseToolException("The issue ledger is not usable, so nothing was issued. " + snapshot.Problem, 2);
+        if (snapshot.UnreadableLines > 0)
+            throw new LicenseToolException(
+                "The issue ledger has " + snapshot.UnreadableLines
+                + " line(s) that cannot be read, so the duplicate check cannot be trusted and nothing was issued. "
+                + "Repair or restore the ledger first.", 2);
         if (snapshot.Entries.Any(e => string.Equals(e.LicenseId, request.LicenseId, StringComparison.Ordinal)))
             throw new LicenseToolException("The license id '" + request.LicenseId + "' was already issued. Use a new id.");
 
@@ -138,7 +148,7 @@ public sealed class IssueService
 
             try
             {
-                IssueLedger.Append(_paths.LedgerPath, request, signer.KeyId, file, now);
+                IssueLedger.Append(_paths.LedgerPath, request, signer.KeyId, file, now, ledgerLock);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {

@@ -1,4 +1,5 @@
-﻿using FlexiCore.ActivationEngine.Services;
+using FlexiCore.ActivationEngine.Services;
+using FlexiCore.LicenseTool;
 
 namespace FlexiCore.ActivationEngine.ViewModels;
 
@@ -83,11 +84,78 @@ public sealed class LedgerPageViewModel : PageViewModel
 
         try
         {
-            var saved = await _dialogs.ExportFileAsync(
-                _paths.LedgerPath, "flexicore-issue-ledger.jsonl",
+            var destination = await _dialogs.PickSavePathAsync(
+                "Export issue ledger",
+                "flexicore-issue-ledger.jsonl",
                 "Issue ledger backup (*.jsonl)|*.jsonl|All files (*.*)|*.*");
-            SetStatus(saved ? StatusKind.Success : StatusKind.Info,
-                saved ? "Issue ledger backup exported." : "Issue ledger export cancelled.");
+
+            if (destination is null)
+            {
+                SetStatus(StatusKind.Info, "Issue ledger export cancelled.");
+                return;
+            }
+
+            // Waiting for the ledger lock can take a while: never do it on the UI thread.
+            var ledgerPath = _paths.LedgerPath;
+            await Task.Run(() =>
+            {
+                using (LedgerFileLock.Acquire(ledgerPath))
+                    SafeFile.CopyNew(ledgerPath, destination);
+            });
+
+            await _dialogs.CompleteSaveAsync(destination);
+            SetStatus(StatusKind.Success, "Issue ledger backup exported.");
+        }
+        catch (Exception ex)
+        {
+            SetStatus(StatusKind.Error, Describe(ex));
+        }
+    }
+
+    public async Task RestoreBackupAsync()
+    {
+        if (_dialogs is null)
+        {
+            SetStatus(StatusKind.Error, "Ledger restore is unavailable in this owner workflow.");
+            return;
+        }
+
+        try
+        {
+            var path = await _dialogs.PickOpenPathAsync(
+                "Choose an issue ledger backup",
+                "Issue ledger backup (*.jsonl)|*.jsonl|All files (*.*)|*.*");
+            if (path is null)
+            {
+                SetStatus(StatusKind.Info, "Issue ledger restore cancelled.");
+                return;
+            }
+
+            var service = new LedgerRestoreService(_paths, _time);
+            var preview = await Task.Run(() => service.Preview(path));
+            if (preview.Added == 0)
+            {
+                SetStatus(StatusKind.Info,
+                    "Nothing to restore. All " + preview.AlreadyPresent + " record(s) in that backup are already in the ledger.");
+                return;
+            }
+
+            var message = "Add " + preview.Added + " missing record(s) from this backup to the issue ledger? "
+                + preview.AlreadyPresent + " record(s) are already there. Existing records are never changed or removed, "
+                + "and a copy of the current ledger is saved first.";
+            if (!await _dialogs.ConfirmAsync("Restore issue ledger", message))
+            {
+                SetStatus(StatusKind.Info, "Issue ledger restore cancelled.");
+                return;
+            }
+
+            var result = await Task.Run(() => service.Restore(path));
+            await OnShownAsync();
+            SetStatus(StatusKind.Success,
+                "Restored " + result.Added + " record(s). "
+                + (result.SafetyCopyPath is null
+                    ? "There was no previous ledger to copy."
+                    : "The previous ledger was copied to " + result.SafetyCopyPath + "."));
         }
         catch (Exception ex)
         {

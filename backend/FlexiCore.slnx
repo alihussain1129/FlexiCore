@@ -15,6 +15,7 @@
     <Project Path="tools/FlexiCore.ActivationAndroid/FlexiCore.ActivationAndroid.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/FlexiCore.LedgerLockHelper/FlexiCore.LedgerLockHelper.csproj" />
     <Project Path="tests/FlexiCore.LicenseTool.Tests/FlexiCore.LicenseTool.Tests.csproj" />
     <Project Path="tests/FlexiCore.ActivationEngine.Tests/FlexiCore.ActivationEngine.Tests.csproj" />
     <Project Path="tests/FlexiCore.ArchitectureTests/FlexiCore.ArchitectureTests.csproj" />

@@ -179,16 +179,33 @@ public static class LicenseToolApp
             OutputPathGuard.EnsureAbsolute(ledger, "The ledger path");
             OutputPathGuard.EnsureOutsideGitWorkingTree(Path.GetDirectoryName(Path.GetFullPath(ledger))!, "The ledger folder");
         }
+
+        // If a ledger was requested, hold its lock until the record has been appended.
+        using var ledgerLock = ledger is null ? null : LedgerFileLock.Acquire(ledger);
+
         if (OutputPathGuard.IsInsideGitWorkingTree(Path.GetDirectoryName(outPath)!))
             console.Error.WriteLine("Warning: the license file is inside a git working tree. It names a customer; do not commit it.");
+
+        // Duplicate protection runs under the held lock, before the passphrase prompt. --force only controls
+        // whether existing OUTPUT files may be replaced; it never bypasses the ledger check.
+        if (ledger is not null) IssueLedger.EnsureNotIssued(ledger, request.LicenseId, ledgerLock!);
 
         using var signer = KeyStore.Load(keyPath, ReadPassphrase(console, "Passphrase: "));
         var file = LicenseIssuer.Issue(request, signer);
 
-        WriteNew(outPath, file, force, "The license file");
-        if (format is "code" or "both")
-            WriteNew(outPath + ".code.txt", System.Text.Encoding.ASCII.GetBytes(ActivationCode.Encode(file)), force, "The activation code file");
-        if (ledger is not null) IssueLedger.Append(ledger, request, signer.KeyId, file, time.GetUtcNow());
+        var undo = new List<(string Path, byte[]? Original)>();
+        try
+        {
+            WriteTracked(outPath, file, force, "The license file", undo);
+            if (format is "code" or "both")
+                WriteTracked(outPath + ".code.txt", System.Text.Encoding.ASCII.GetBytes(ActivationCode.Encode(file)), force, "The activation code file", undo);
+            if (ledger is not null) IssueLedger.Append(ledger, request, signer.KeyId, file, time.GetUtcNow(), ledgerLock!);
+        }
+        catch
+        {
+            RollbackOutputs(undo, console);
+            throw;
+        }
 
         console.Out.WriteLine($"Issued {request.LicenseId} to '{request.Licensee}' with key '{signer.KeyId}'");
         console.Out.WriteLine($"  not before : {LicenseIssuer.FormatTimestamp(request.NotBefore)}");
@@ -254,6 +271,36 @@ public static class LicenseToolApp
         return int.TryParse(text, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var value)
             ? value
             : throw new LicenseToolException($"--{name} must be a whole number.");
+    }
+
+    private static void WriteTracked(
+        string path, byte[] bytes, bool force, string what, List<(string Path, byte[]? Original)> undo)
+    {
+        var exists = File.Exists(path);
+        if (exists && !force)
+            throw new LicenseToolException($"{what} already exists: {path}. Use --force to replace it.");
+        undo.Add((path, exists ? File.ReadAllBytes(path) : null));
+        WriteNew(path, bytes, force, what);
+    }
+
+    /// <summary>Undoes this run's output files: delete what it created, restore what --force replaced.</summary>
+    private static void RollbackOutputs(List<(string Path, byte[]? Original)> undo, IToolConsole console)
+    {
+        for (var i = undo.Count - 1; i >= 0; i--)
+        {
+            var (path, original) = undo[i];
+            try
+            {
+                if (original is null) { if (File.Exists(path)) File.Delete(path); }
+                else File.WriteAllBytes(path, original);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                console.Error.WriteLine(
+                    "Warning: could not undo " + path + " (" + ex.GetType().Name
+                    + "). Check it manually; the license was NOT recorded in the ledger.");
+            }
+        }
     }
 
     private static void WriteNew(string path, byte[] bytes, bool force, string what)

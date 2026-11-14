@@ -296,16 +296,18 @@ public sealed class IssueViewModel : PageViewModel
         OnPropertyChanged(nameof(UnlockHint));
     }
 
-    private void LoadKnownCustomers()
+    private async Task LoadKnownCustomersAsync()
     {
         if (_ownerPaths is null) return;
         try
         {
-            var names = LedgerReader.Read(_ownerPaths.LedgerPath).Entries
+            // The ledger read waits for the ledger lock: keep it off the UI thread.
+            var ledgerPath = _ownerPaths.LedgerPath;
+            var names = await Task.Run(() => LedgerReader.Read(ledgerPath).Entries
                 .Select(e => e.Licensee)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
-                .ToList();
+                .ToList());
             KnownCustomers.Clear();
             foreach (var name in names) KnownCustomers.Add(name);
         }
@@ -335,7 +337,7 @@ public sealed class IssueViewModel : PageViewModel
             KeyIds.Clear();
             foreach (var key in list) { if (overview is null || overview.IsSelectable(key.KeyId)) KeyIds.Add(key.KeyId); }
             SelectedKeyId = previous is not null && KeyIds.Contains(previous) ? previous : KeyIds.FirstOrDefault(); ApplyKeyPolicy(overview);
-            OnPropertyChanged(nameof(HasNoKeys)); OnPropertyChanged(nameof(HasMultipleKeys)); OnPropertyChanged(nameof(HasSingleKey)); LoadKnownCustomers();
+            OnPropertyChanged(nameof(HasNoKeys)); OnPropertyChanged(nameof(HasMultipleKeys)); OnPropertyChanged(nameof(HasSingleKey)); await LoadKnownCustomersAsync();
         }
         catch (Exception ex)
         {

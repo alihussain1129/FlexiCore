@@ -25,4 +25,17 @@
     <Using Include="System.IO" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\FlexiCore.LedgerLockHelper\FlexiCore.LedgerLockHelper.csproj"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <!-- The cross-process lock tests start this helper with "dotnet FlexiCore.LedgerLockHelper.dll". -->
+  <Target Name="CopyLedgerLockHelper" AfterTargets="Build">
+    <ItemGroup>
+      <LockHelperFile Include="..\FlexiCore.LedgerLockHelper\bin\$(Configuration)\$(TargetFramework)\FlexiCore.LedgerLockHelper.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(LockHelperFile)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>
