@@ -42,7 +42,7 @@ public sealed class IssueLedgerNewlineStyleTests
         Directory.CreateDirectory(Path.GetDirectoryName(ledger)!);
         File.WriteAllBytes(ledger, Encoding.UTF8.GetBytes("{\"old\":1}\r"));
         var before = File.ReadAllBytes(ledger);
-        var separator = Encoding.UTF8.GetBytes(Environment.NewLine);
+        var separator = Encoding.UTF8.GetBytes("\n");
 
         IssueLedger.Append(ledger, Request("LIC-CR"), "fc-test-a", new byte[] { 1 }, Now);
 

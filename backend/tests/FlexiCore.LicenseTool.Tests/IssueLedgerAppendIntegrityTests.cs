@@ -72,7 +72,7 @@ public sealed class IssueLedgerAppendIntegrityTests
         var ledger = dir.Combine("owner/issue-ledger.jsonl");
         Assert.Equal(0, Run(new FakeConsole(Pass), Args(key, dir.Combine("a.lic"), ledger, "LIC-A")));
         var terminated = File.ReadAllBytes(ledger);
-        var unterminated = terminated[..^Environment.NewLine.Length];
+        var unterminated = terminated[..^1];
         File.WriteAllBytes(ledger, unterminated);
 
         Assert.Equal(0, Run(new FakeConsole(Pass), Args(key, dir.Combine("b.lic"), ledger, "LIC-B")));
