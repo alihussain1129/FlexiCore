@@ -5,7 +5,7 @@ using Avalonia.Android;
 
 namespace FlexiCore.ActivationApp;
 
-[Activity(
+[Activity(Icon = "@mipmap/ic_launcher", RoundIcon = "@mipmap/ic_launcher_round", 
     Label = "FlexiCore Activation Engine",
     Theme = "@style/Theme.AppCompat.Light.NoActionBar",
     MainLauncher = true,
