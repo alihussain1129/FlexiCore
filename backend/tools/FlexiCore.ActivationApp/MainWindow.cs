@@ -540,7 +540,7 @@ internal sealed class ActivationShell : UserControl
     {
         RebuildNavigation();
         var vm = _model.CurrentPage;
-        _page.MaxWidth = vm is DashboardViewModel or CustomersViewModel or LedgerPageViewModel ? 1240 : 860;
+        _page.MaxWidth = vm is DashboardViewModel or CustomersViewModel or LedgerPageViewModel or ActivationRequestsViewModel ? 1240 : 860;
         _pageTitle.Foreground = ActivationDesignSystem.PrimaryText;
         _pageTitle.Text = vm.Title;
         _pageSubtitle.Foreground = ActivationDesignSystem.SecondaryText;
@@ -565,6 +565,7 @@ internal sealed class ActivationShell : UserControl
         {
             case DashboardViewModel dashboard: ShowDashboard(dashboard); break;
             case CustomersViewModel customers: ShowCustomers(customers); break;
+            case ActivationRequestsViewModel requests: ShowActivationRequests(requests); break;
             case LedgerPageViewModel ledger: ShowLedger(ledger); break;
             case ActivateViewModel activate: ShowActivate(activate); break;
             case IssueViewModel issue: ShowIssue(issue); break;
@@ -730,6 +731,57 @@ internal sealed class ActivationShell : UserControl
         AddRefresh(vm);
     }
 
+    private void ShowActivationRequests(ActivationRequestsViewModel vm)
+    {
+        _page.Children.Add(SectionCard("Register an installation request",
+            "The FCR1 checksum detects transcription errors only. Verify the customer and their authority independently before approving.",
+            ComboField("Active customer", vm.ActiveCustomers, vm.SelectedCustomer,
+                customer => vm.SelectedCustomer = customer, customer => customer.Name),
+            MultilineInput(vm.RequestText, "Paste the FCR1 request code", text => vm.RequestText = text),
+            Caption("Local reviewer: " + vm.Reviewer),
+            ButtonRow(
+                ButtonSync("Register as pending", () => { vm.RegisterCommand.Execute(null); ShowCurrentPage(); }),
+                Button("Refresh", async () => { await vm.OnShownAsync(); ShowCurrentPage(); }))));
+
+        var search = CreateTextInput(vm.SearchText, "Search request ID, customer, or installation");
+        search.TextChanged += (_, _) => { vm.SearchText = search.Text ?? ""; ShowCurrentPage(); };
+        _page.Children.Add(SectionCard("Request queue", "Review decisions are stored with the local OS account and UTC time.",
+            ComboField("Status", vm.StatusFilters, vm.StatusFilter, value => vm.StatusFilter = value), search));
+
+        if (vm.Rows.Count == 0)
+            _page.Children.Add(Empty("No activation requests match this view."));
+        foreach (var request in vm.Rows)
+        {
+            var customer = vm.ActiveCustomers.FirstOrDefault(c => c.Id == request.CustomerId)?.Name ?? request.CustomerName;
+            var selected = Equals(vm.Selected, request);
+            _page.Children.Add(FlexiSections.SelectableCard(
+                $"{customer} · {request.Status}",
+                new[] { request.Id.ToString("D"), $"Installation {request.InstallationId}", $"Product {request.Product}", $"Submitted {request.CreatedAt:yyyy-MM-dd HH:mm} UTC" },
+                Array.IndexOf(vm.Rows.ToArray(), request), null, _compact, selected,
+                () => { vm.Selected = request; ShowCurrentPage(); }, FlexiUi.IconKey));
+        }
+
+        if (vm.Selected is { } selectedRequest)
+        {
+            _page.Children.Add(SectionCard("Request details",
+                $"Request {selectedRequest.Id:D}\nCustomer: {vm.CustomerDetails}\nProduct: {selectedRequest.Product}\nInstallation: {selectedRequest.InstallationId}\nStatus: {selectedRequest.Status}\nLicense: {selectedRequest.LicenseId ?? "not issued"}",
+                MultilineInput(vm.Reason, "Reason (required for rejection/cancellation)", value => vm.Reason = value),
+                MultilineReadOnly(vm.HistoryText)));
+
+            var review = ButtonSync("Start review", () => { vm.ReviewCommand.Execute(null); ShowCurrentPage(); });
+            review.IsEnabled = vm.ReviewCommand.CanExecute(null);
+            var approve = ButtonSync("Approve", () => { vm.ApproveCommand.Execute(null); ShowCurrentPage(); });
+            approve.IsEnabled = vm.ApproveCommand.CanExecute(null);
+            var reject = ButtonSync("Reject", () => { vm.RejectCommand.Execute(null); ShowCurrentPage(); });
+            reject.IsEnabled = vm.RejectCommand.CanExecute(null);
+            var cancel = ButtonSync("Cancel request", () => { vm.CancelCommand.Execute(null); ShowCurrentPage(); });
+            cancel.IsEnabled = vm.CancelCommand.CanExecute(null);
+            var issue = ButtonSync("Issue license for approved request", () => { vm.IssueCommand.Execute(null); ShowCurrentPage(); });
+            issue.IsEnabled = vm.IssueCommand.CanExecute(null);
+            _page.Children.Add(ButtonRow(review, approve, reject, cancel, issue));
+        }
+    }
+
     private void ShowLedger(LedgerPageViewModel vm)
     {
         var search = CreateTextInput(vm.SearchText, "Search by license, customer, or signing key");
@@ -863,6 +915,7 @@ internal sealed class ActivationShell : UserControl
         else _page.Children.Add(Caption(vm.ExpiryPreview));
         _page.Children.Add(Field("Grace days", vm.GraceDaysText, value => vm.GraceDaysText = value, "0"));
         _page.Children.Add(Field("Maximum installations", vm.MaxInstallationsText, value => vm.MaxInstallationsText = value, "1"));
+        _page.Children.Add(SectionCard("Customer approval", vm.ApprovedRequestSummary));
         _page.Children.Add(SectionCard("Installation binding", vm.BindingSummary,
             MultilineInput(vm.RequestText, "Optional request code", text => vm.RequestText = text)));
         if (vm.RequireRequestCode)
@@ -877,7 +930,7 @@ internal sealed class ActivationShell : UserControl
             _page.Children.Add(Warning("This key is non-exportable and is accessed through the platform keystore. Its hardware backing has not been verified."));
         if (!string.IsNullOrEmpty(vm.UnlockHint)) _page.Children.Add(Caption(vm.UnlockHint));
         if (passphrase is not null) _page.Children.Add(passphrase);
-        _page.Children.Add(ButtonRow(Button("Issue license", async () =>
+        var issueButton = Button("Issue license", async () =>
         {
             await RunSafe(async () =>
             {
@@ -885,7 +938,9 @@ internal sealed class ActivationShell : UserControl
                 if (passphrase is not null) passphrase.Text = "";
                 ShowCurrentPage();
             });
-        }), ButtonSync("New customer", () => { vm.NewCustomerCommand.Execute(null); ShowCurrentPage(); })));
+        });
+        if (vm.RequireApprovedRequest) issueButton.IsEnabled = vm.HasApprovedRequest;
+        _page.Children.Add(ButtonRow(issueButton, ButtonSync("New customer", () => { vm.NewCustomerCommand.Execute(null); ShowCurrentPage(); })));
         foreach (var result in vm.Result) _page.Children.Add(Row($"{result.Label}: {result.Value}"));
         if (!string.IsNullOrWhiteSpace(vm.LastActivationText))
         {

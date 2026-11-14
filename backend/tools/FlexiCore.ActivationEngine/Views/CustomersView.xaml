@@ -7,44 +7,70 @@
     <TextBlock Text="{Binding Subtitle}" Style="{StaticResource PageSubtitle}" Margin="0,4,0,22"/>
     <local:StatusBanner/>
 
-    <Border Style="{StaticResource Card}" Padding="40" Visibility="{Binding HasNoRows, Converter={StaticResource BoolToVis}}">
-      <StackPanel HorizontalAlignment="Center" MaxWidth="480">
-        <TextBlock Text="&#xE716;" FontFamily="{StaticResource IconFont}" FontSize="30"
-                   Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center"/>
-        <TextBlock Text="No customers yet" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"
-                   HorizontalAlignment="Center" Margin="0,14,0,6"/>
-        <TextBlock Text="A customer appears here after the first license is issued to them. Customers are read from the issue ledger; there is no separate customer database yet."
-                   Style="{StaticResource BodyMuted}" TextAlignment="Center"/>
+    <Border Style="{StaticResource Card}" Padding="22" Margin="0,0,0,16">
+      <StackPanel>
+        <TextBlock Text="Register or update customer" FontSize="17" FontWeight="SemiBold"
+                   Foreground="{StaticResource TextBrush}" Margin="0,0,0,14"/>
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+          <StackPanel Grid.Column="0" Margin="0,0,10,10">
+            <TextBlock Text="Customer name *" Style="{StaticResource BodyMuted}"/>
+            <TextBox Style="{StaticResource InputBox}" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                     AutomationProperties.Name="Customer name"/>
+          </StackPanel>
+          <StackPanel Grid.Column="1" Margin="0,0,10,10">
+            <TextBlock Text="Legal name" Style="{StaticResource BodyMuted}"/>
+            <TextBox Style="{StaticResource InputBox}" Text="{Binding LegalName, UpdateSourceTrigger=PropertyChanged}"
+                     AutomationProperties.Name="Legal name"/>
+          </StackPanel>
+          <StackPanel Grid.Column="2" Margin="0,0,10,10">
+            <TextBlock Text="Email" Style="{StaticResource BodyMuted}"/>
+            <TextBox Style="{StaticResource InputBox}" Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}"
+                     AutomationProperties.Name="Customer email"/>
+          </StackPanel>
+          <StackPanel Grid.Column="3" Margin="0,0,0,10">
+            <TextBlock Text="Phone" Style="{StaticResource BodyMuted}"/>
+            <TextBox Style="{StaticResource InputBox}" Text="{Binding Phone, UpdateSourceTrigger=PropertyChanged}"
+                     AutomationProperties.Name="Customer phone"/>
+          </StackPanel>
+          <StackPanel Grid.Row="1" Grid.ColumnSpan="4" Orientation="Horizontal" Margin="0,4,0,0">
+            <Button Content="Save customer" Style="{StaticResource PrimaryButton}" Command="{Binding SaveCommand}" Margin="0,0,10,0"/>
+            <Button Content="New" Style="{StaticResource SecondaryButton}" Command="{Binding NewCommand}" Margin="0,0,10,0"/>
+            <Button Content="Set active" Style="{StaticResource SecondaryButton}" Command="{Binding SetActiveCommand}" Margin="0,0,10,0"/>
+            <Button Content="Set inactive" Style="{StaticResource SecondaryButton}" Command="{Binding SetInactiveCommand}"/>
+            <TextBlock Text="Select a registered customer below to edit or change status. Legacy license history is preserved."
+                       Style="{StaticResource BodyMuted}" VerticalAlignment="Center" Margin="16,0,0,0"/>
+          </StackPanel>
+        </Grid>
       </StackPanel>
     </Border>
 
-    <Border Padding="22">
-      <Border.Style>
-        <Style TargetType="Border" BasedOn="{StaticResource Card}">
-          <Style.Triggers>
-            <DataTrigger Binding="{Binding HasNoRows}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
-          </Style.Triggers>
-        </Style>
-      </Border.Style>
+    <Border Style="{StaticResource Card}" Padding="22">
       <StackPanel>
         <Grid Margin="0,0,0,14">
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="320"/>
-            <ColumnDefinition Width="*"/>
-          </Grid.ColumnDefinitions>
+          <Grid.ColumnDefinitions><ColumnDefinition Width="320"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
           <TextBox Style="{StaticResource InputBox}" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                    AutomationProperties.Name="Search customers" ToolTip="Search by customer name"/>
           <TextBlock Grid.Column="1" Text="{Binding Summary}" Style="{StaticResource BodyMuted}"
                      HorizontalAlignment="Right" VerticalAlignment="Center"/>
         </Grid>
-        <DataGrid Style="{StaticResource GridStyle}" ItemsSource="{Binding Rows}" MaxHeight="560"
-                  AutomationProperties.Name="Customers">
+        <TextBlock Text="No customers are registered and no license history exists yet." Style="{StaticResource BodyMuted}"
+                   Visibility="{Binding HasNoRows, Converter={StaticResource BoolToVis}}" Margin="0,0,0,10"/>
+        <DataGrid Style="{StaticResource GridStyle}" ItemsSource="{Binding Rows}" SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
+                  MaxHeight="560" MinHeight="120" AutomationProperties.Name="Customers">
           <DataGrid.Columns>
             <DataGridTextColumn Header="Customer" Binding="{Binding Name, Mode=OneWay}" Width="*"/>
-            <DataGridTextColumn Header="Licenses" Binding="{Binding Licenses, Mode=OneWay}" Width="90"/>
-            <DataGridTextColumn Header="Active now" Binding="{Binding ActiveNow, Mode=OneWay}" Width="100"/>
-            <DataGridTextColumn Header="Last issued" Binding="{Binding LastIssued, Mode=OneWay}" Width="170"/>
-            <DataGridTextColumn Header="Latest expiry" Binding="{Binding LatestExpiry, Mode=OneWay}" Width="170"/>
+            <DataGridTextColumn Header="Status" Binding="{Binding Status, Mode=OneWay}" Width="85"/>
+            <DataGridTextColumn Header="Legal name" Binding="{Binding LegalName, Mode=OneWay}" Width="*"/>
+            <DataGridTextColumn Header="Email" Binding="{Binding Email, Mode=OneWay}" Width="*"/>
+            <DataGridTextColumn Header="Licenses" Binding="{Binding Licenses, Mode=OneWay}" Width="75"/>
+            <DataGridTextColumn Header="Active now" Binding="{Binding ActiveNow, Mode=OneWay}" Width="85"/>
+            <DataGridTextColumn Header="Last issued" Binding="{Binding LastIssued, Mode=OneWay}" Width="150"/>
+            <DataGridTextColumn Header="Latest expiry" Binding="{Binding LatestExpiry, Mode=OneWay}" Width="150"/>
           </DataGrid.Columns>
         </DataGrid>
       </StackPanel>

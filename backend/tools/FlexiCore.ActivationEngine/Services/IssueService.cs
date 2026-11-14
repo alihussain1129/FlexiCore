@@ -16,7 +16,12 @@ public sealed record IssueInput(
     int MaxInstallations,
     string? InstallationId,
     string OutputPath,
-    bool WriteActivationCode);
+    bool WriteActivationCode)
+{
+    public Guid? ActivationRequestId { get; init; }
+    public Guid? CustomerId { get; init; }
+    public string? IssuedBy { get; init; }
+}
 
 public sealed record IssueOutcome(
     string LicenseId,
@@ -42,17 +47,26 @@ public sealed class IssueService
     private readonly TimeProvider _time;
     private readonly KeyService _keys;
     private readonly KeyManagementService _keyManagement;
+    private readonly ActivationRequestRegistry? _activationRequests;
+    private readonly CustomerRegistry? _customers;
+    private readonly bool _requireApprovedRequest;
 
     public IssueService(
         OwnerPaths paths,
         TimeProvider time,
         KeyService keys,
-        KeyManagementService keyManagement)
+        KeyManagementService keyManagement,
+        ActivationRequestRegistry? activationRequests = null,
+        CustomerRegistry? customers = null,
+        bool requireApprovedRequest = false)
     {
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
         _time = time ?? throw new ArgumentNullException(nameof(time));
         _keys = keys ?? throw new ArgumentNullException(nameof(keys));
         _keyManagement = keyManagement ?? throw new ArgumentNullException(nameof(keyManagement));
+        _activationRequests = activationRequests;
+        _customers = customers;
+        _requireApprovedRequest = requireApprovedRequest;
     }
 
     public static LicenseRequest BuildRequest(IssueInput input, DateTimeOffset now) =>
@@ -73,6 +87,32 @@ public sealed class IssueService
         var now = _time.GetUtcNow();
         KeyStore.ValidateKeyId(input.KeyId);
         var request = BuildRequest(input, now);
+
+        if (_requireApprovedRequest && input.ActivationRequestId is null)
+            throw new LicenseToolException("An approved customer activation request is required for license issuance.");
+        if (input.CustomerId is not null && input.ActivationRequestId is null)
+            throw new LicenseToolException("Customer-bound issuance requires an approved activation request.");
+        using var activationRequestLock = input.ActivationRequestId is null
+            ? null
+            : _activationRequests?.AcquireLock()
+              ?? throw new LicenseToolException("Activation request review is not configured; nothing was issued.");
+
+        ActivationRequestRecord? approvedActivation = null;
+        if (input.ActivationRequestId is { } activationRequestId)
+        {
+            var actor = input.IssuedBy;
+            _activationRequests!.DemandAuthorizedReviewer(actor);
+            approvedActivation = _activationRequests.GetApprovedForIssue(activationRequestId, activationRequestLock!);
+            if (_customers is null || input.CustomerId != approvedActivation.CustomerId)
+                throw new LicenseToolException("The selected customer does not match the approved activation request.");
+            var customer = _customers.Get(approvedActivation.CustomerId);
+            if (customer is null || customer.Status != CustomerStatus.Active
+                || !string.Equals(customer.Name, approvedActivation.CustomerName, StringComparison.Ordinal)
+                || !string.Equals(request.Licensee, customer.Name, StringComparison.Ordinal)
+                || !string.Equals(request.Product, approvedActivation.Product, StringComparison.Ordinal)
+                || !string.Equals(request.InstallationId, approvedActivation.InstallationId, StringComparison.Ordinal))
+                throw new LicenseToolException("Customer, product, or installation does not match the approved request.");
+        }
 
         // Enforce owner key policy here, not only in the UI.
         // A damaged key list or registry must never silently make a key eligible.
@@ -120,6 +160,9 @@ public sealed class IssueService
                 + "Repair or restore the ledger first.", 2);
         if (snapshot.Entries.Any(e => string.Equals(e.LicenseId, request.LicenseId, StringComparison.Ordinal)))
             throw new LicenseToolException("The license id '" + request.LicenseId + "' was already issued. Use a new id.");
+        if (input.ActivationRequestId is { } duplicateRequestId
+            && snapshot.Entries.Any(e => e.ActivationRequestId == duplicateRequestId))
+            throw new LicenseToolException("This activation request already has a license in the durable issue ledger.");
 
         // Sign with the existing issuer. It verifies the result with the production verifier before returning.
         using var signer = _keys.OpenSigner(input.KeyId, input.Passphrase);
@@ -177,7 +220,8 @@ public sealed class IssueService
 
             try
             {
-                IssueLedger.Append(_paths.LedgerPath, request, signer.KeyId, file, now, ledgerLock);
+                IssueLedger.Append(_paths.LedgerPath, request, signer.KeyId, file, now, ledgerLock,
+                    input.ActivationRequestId, input.CustomerId, input.IssuedBy);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -185,6 +229,7 @@ public sealed class IssueService
                     "The issue ledger could not be written (" + ex.GetType().Name + "), so the license was NOT issued. No license file was kept.", 2);
             }
         }
+
         catch
         {
             var leftovers = new List<string>();
@@ -198,6 +243,21 @@ public sealed class IssueService
                     "Issuing failed after a file was written that could not be removed. Delete it manually; it was NOT recorded in the ledger: "
                     + string.Join("; ", leftovers), 2);
             throw;
+        }
+
+        if (approvedActivation is not null)
+        {
+            try
+            {
+                _activationRequests!.MarkIssued(approvedActivation.Id, approvedActivation.CustomerId,
+                    request.LicenseId, input.IssuedBy!, activationRequestLock!);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or LicenseToolException)
+            {
+                // The issue ledger is the durable issuance source of truth and includes request/customer IDs.
+                // Request status is reconstructed as Issued from that entry on the next read.
+                warnings.Add("The license was durably issued; request status will be recovered from the issue ledger.");
+            }
         }
 
         return new IssueOutcome(

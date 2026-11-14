@@ -25,6 +25,9 @@ public sealed class IssueViewModel : PageViewModel
     private bool _writeActivationCode = true;
     private IReadOnlyList<DetailRow> _result = Array.Empty<DetailRow>();
     private string? _lastLicensePath;
+    private Guid? _activationRequestId;
+    private Guid? _customerId;
+    private string? _issuedBy;
 
     public IssueViewModel(KeyService keys, IssueService issue, IDialogService dialogs, TimeProvider time, OwnerPaths? paths = null)
         : base("Issue License", "Sign a license, verify it, save it and record it in the ledger.", "\uE8FB")
@@ -53,6 +56,11 @@ public sealed class IssueViewModel : PageViewModel
         {
             Licensee = "";
             RequestText = "";
+            _activationRequestId = null;
+            _customerId = null;
+            _issuedBy = null;
+            OnPropertyChanged(nameof(ApprovedRequestSummary));
+            OnPropertyChanged(nameof(HasApprovedRequest));
             LastActivationText = "";
             _lastLicensePath = null;
             Result = Array.Empty<DetailRow>();
@@ -221,6 +229,34 @@ public sealed class IssueViewModel : PageViewModel
 
     /// <summary>When true, a license without a customer request code is refused (the ERP refuses unbound licenses by default).</summary>
     public bool RequireRequestCode { get; set; }
+    public bool RequireApprovedRequest { get; set; }
+    public bool HasApprovedRequest => _activationRequestId is not null;
+    public string ApprovedRequestSummary => _activationRequestId is { } id
+        ? $"Approved request {id:D} for customer {Licensee}. Customer and installation are checked again by the issuance service."
+        : "No approved request is selected. Production issuance requires an approved request.";
+
+    public void SetApprovedRequest(ActivationRequestRecord request, CustomerRecord customer)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(customer);
+        if (request.Status != ActivationRequestStatus.Approved || request.CustomerId != customer.Id
+            || customer.Status != CustomerStatus.Active
+            || !string.Equals(request.CustomerName, customer.Name, StringComparison.Ordinal)
+            || request.Product != LicenseLimits.ExpectedProduct)
+            throw new LicenseToolException("The selected request is not approved for this active customer.");
+        _activationRequestId = request.Id;
+        _customerId = customer.Id;
+        _issuedBy = Environment.UserName;
+        Licensee = customer.Name;
+        RequestText = InstallationIds.ToRequestCode(request.InstallationId);
+        LicenseId = LicenseIdGenerator.Next(_time.GetUtcNow());
+        Result = Array.Empty<DetailRow>();
+        LastActivationText = "";
+        _lastLicensePath = null;
+        OnPropertyChanged(nameof(ApprovedRequestSummary));
+        OnPropertyChanged(nameof(HasApprovedRequest));
+        SetStatus(StatusKind.Info, "Approved request loaded. Issuance rechecks customer, request, installation, and trusted key at the service boundary.");
+    }
 
     public KeyManagementService? KeyManager { get; set; }
 
@@ -430,7 +466,12 @@ public sealed class IssueViewModel : PageViewModel
 
         var draft = new IssueInput(
             SelectedKeyId, passphrase, LicenseId, Licensee, notBefore, expires, grace, installs,
-            installationId, "", WriteActivationCode);
+            installationId, "", WriteActivationCode)
+        {
+            ActivationRequestId = _activationRequestId,
+            CustomerId = _customerId,
+            IssuedBy = _issuedBy,
+        };
 
         try
         {

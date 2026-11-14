@@ -18,11 +18,15 @@ public sealed class OwnerPaths
 
         KeysDirectory = Path.Combine(Root, "keys");
         LedgerPath = Path.Combine(Root, "issue-ledger.jsonl");
+        CustomersPath = Path.Combine(Root, "customers.json");
+        ActivationRequestsPath = Path.Combine(Root, "activation-requests.json");
     }
 
     public string Root { get; }
     public string KeysDirectory { get; }
     public string LedgerPath { get; }
+    public string CustomersPath { get; }
+    public string ActivationRequestsPath { get; }
 
     public bool LooksCloudSynced => OutputPathGuard.LooksCloudSynced(Root);
     public bool InsideGitWorkingTree => OutputPathGuard.IsInsideGitWorkingTree(Root);

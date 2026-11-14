@@ -1,4 +1,6 @@
 using FlexiCore.ActivationEngine.Services;
+using FlexiCore.Licensing;
+using FlexiCore.LicenseTool;
 
 namespace FlexiCore.ActivationEngine.ViewModels;
 
@@ -29,9 +31,12 @@ public sealed class MainViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(time);
         options ??= new ActivationEngineOptions();
 
+        var customerRegistry = new CustomerRegistry(paths, time);
+        var activationRequests = new ActivationRequestRegistry(paths, customerRegistry, time);
         var keyService = new KeyService(paths, options.PlatformSigningKeyStore);
         var keyManager = new KeyManagementService(paths, keyService, time);
-        var issueService = new IssueService(paths, time, keyService, keyManager);
+        var issueService = new IssueService(paths, time, keyService, keyManager, activationRequests, customerRegistry,
+            requireApprovedRequest: options.IncludeKeyManagement || options.RequireRequestCode);
         var activate = new ActivateViewModel(dialogs);
         var issueDialogs = options.UseAutoSave
             ? new AutoSaveDialogService(
@@ -41,14 +46,18 @@ public sealed class MainViewModel : ObservableObject
         var issue = new IssueViewModel(keyService, issueService, issueDialogs, time, paths)
         {
             RequireRequestCode = options.RequireRequestCode,
+            RequireApprovedRequest = options.IncludeKeyManagement || options.RequireRequestCode,
             KeyManager = options.IncludeKeyManagement ? keyManager : null,
         };
+        var requests = new ActivationRequestsViewModel(activationRequests, customerRegistry, dialogs);
         var issueNav = new NavItem("Issue License", "\uE8FB", issue);
+        var requestsNav = new NavItem("Activation Requests", "\uE896", requests);
 
         Items = new[]
         {
             new NavItem("Dashboard", "\uE80F", new DashboardViewModel(paths, keyService, time)),
             new NavItem("Customers", "\uE716", new CustomersViewModel(paths, time)),
+            requestsNav,
             new NavItem("Licenses", "\uE8A5", new LedgerPageViewModel(paths, time, LedgerMode.Licenses, dialogs)),
             new NavItem("Activate Installation", "\uE896", activate),
             issueNav,
@@ -67,8 +76,21 @@ public sealed class MainViewModel : ObservableObject
 
         activate.ProceedRequested += id =>
         {
-            issue.SetInstallation(id);
-            Selected = issueNav;
+            requests.RequestText = InstallationIds.ToRequestCode(id);
+            Selected = requestsNav;
+        };
+
+        requests.IssueRequested += approved =>
+        {
+            try
+            {
+                issue.SetApprovedRequest(approved.Request, approved.Customer);
+                Selected = issueNav;
+            }
+            catch (LicenseToolException ex)
+            {
+                requests.ReportHandoffError(ex.Message);
+            }
         };
 
         GoActivateCommand = new RelayCommand(() => Selected = Items.First(i => i.Title == "Activate Installation"));

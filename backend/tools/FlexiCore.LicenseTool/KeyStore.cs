@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using FlexiCore.Licensing;
 
@@ -56,6 +57,7 @@ public static class KeyStore
     private static readonly Regex IdPattern = new(@"^[A-Za-z0-9._-]{1,64}\z", RegexOptions.CultureInvariant);
 
     public sealed record CreatedKey(string PrivateKeyPath, string PublicKeyPath, string Fingerprint, bool AccessRestricted);
+    public sealed record ProvisionedKey(string PrivateKeyPath, string KeyId, string Fingerprint);
 
     public static void ValidateKeyId(string? keyId)
     {
@@ -205,6 +207,98 @@ public static class KeyStore
         {
             key.Dispose();
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Copies an already encrypted signer into owner storage only when its public key exactly matches the supplied
+    /// authorized key set. This never generates a key, changes a trust set, decrypts to disk, or overwrites a key.
+    /// </summary>
+    public static ProvisionedKey ProvisionAuthorized(
+        string encryptedPrivateKeyPath,
+        string destinationDirectory,
+        string passphrase,
+        IReadOnlyCollection<TrustedKey> authorizedKeys)
+    {
+        ArgumentNullException.ThrowIfNull(authorizedKeys);
+        var source = Path.GetFullPath(encryptedPrivateKeyPath);
+        if (!File.Exists(source)) throw new LicenseToolException("The encrypted signer file was not found.");
+        var info = new FileInfo(source);
+        if (info.Length is 0 or > 128 * 1024)
+            throw new LicenseToolException("The encrypted signer file has an invalid size.");
+
+        OutputPathGuard.EnsureOutsideGitWorkingTree(destinationDirectory, "The signer directory");
+        var targetDirectory = Path.GetFullPath(destinationDirectory);
+
+        using var signer = Load(source, passphrase);
+        var matching = authorizedKeys.Where(k => string.Equals(k.KeyId, signer.KeyId, StringComparison.Ordinal)).ToArray();
+        if (matching.Length != 1 || !matching[0].SubjectPublicKeyInfo.AsSpan().SequenceEqual(signer.SubjectPublicKeyInfo))
+            throw new LicenseToolException(
+                "The signer does not exactly match one authorized public key. Nothing was provisioned.", 2);
+
+        Directory.CreateDirectory(targetDirectory);
+        var target = Path.Combine(targetDirectory, signer.KeyId + ".p8");
+        if (File.Exists(target))
+            throw new LicenseToolException("A signer with that key id already exists in the destination. Nothing was changed.");
+        var encryptedBytes = File.ReadAllBytes(source);
+        WritePrivateFile(target, encryptedBytes, RestrictToCurrentUser);
+
+        using var provisioned = Load(target, passphrase);
+        if (!provisioned.SubjectPublicKeyInfo.AsSpan().SequenceEqual(matching[0].SubjectPublicKeyInfo))
+            throw new LicenseToolException("The provisioned signer failed its public-key recheck.", 2);
+
+        var fingerprint = Fingerprint(signer.SubjectPublicKeyInfo);
+        try { AppendProvisioningAudit(targetDirectory, signer.KeyId, fingerprint); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new LicenseToolException(
+                "The authorized signer was copied to " + target + ", but its provisioning audit event could not be written. "
+                + "Preserve that file and repair the owner audit folder before further signing.", 2);
+        }
+        return new ProvisionedKey(target, signer.KeyId, fingerprint);
+    }
+
+    private static void AppendProvisioningAudit(string directory, string keyId, string fingerprint)
+    {
+        var lockPath = Path.Combine(directory, ".key-provisioning-audit.lock");
+        FileStream? held = null;
+        for (var attempt = 0; attempt < 50 && held is null; attempt++)
+        {
+            try
+            {
+                var options = new FileStreamOptions
+                {
+                    Mode = FileMode.OpenOrCreate, Access = FileAccess.ReadWrite, Share = FileShare.None,
+                };
+                if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+                held = new FileStream(lockPath, options);
+            }
+            catch (IOException) when (attempt < 49) { Thread.Sleep(100); }
+        }
+        if (held is null) throw new IOException("The provisioning audit lock could not be acquired.");
+        using (held)
+        {
+            using var row = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(row))
+            {
+                writer.WriteStartObject();
+                writer.WriteString("recordedAt", DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+                writer.WriteString("action", "provision-authorized-key");
+                writer.WriteString("keyId", keyId);
+                writer.WriteString("fingerprint", fingerprint);
+                writer.WriteString("operator", Environment.UserName);
+                writer.WriteEndObject();
+            }
+            var bytes = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(row.ToArray()) + Environment.NewLine);
+            var auditPath = Path.Combine(directory, "key-provisioning-audit.jsonl");
+            var auditOptions = new FileStreamOptions
+            {
+                Mode = FileMode.Append, Access = FileAccess.Write, Share = FileShare.Read,
+            };
+            if (!OperatingSystem.IsWindows()) auditOptions.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            using var audit = new FileStream(auditPath, auditOptions);
+            audit.Write(bytes);
+            audit.Flush(true);
         }
     }
 

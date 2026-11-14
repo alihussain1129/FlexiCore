@@ -16,7 +16,12 @@ public sealed record LedgerEntry(
     DateTimeOffset? ExpiresAt,
     int GraceDays,
     int MaxInstallations,
-    string FileSha256)
+    string FileSha256,
+    string? InstallationId = null,
+    Guid? ActivationRequestId = null,
+    Guid? CustomerId = null,
+    string? IssuedBy = null,
+    string? RenewedFromLicenseId = null)
 {
     public TermStatus StatusAt(DateTimeOffset now)
     {
@@ -207,7 +212,61 @@ public static class LedgerReader
             if (!Number(r, "maxInstallations", out var installs)) return null;
             Text(r, "fileSha256", out var sha);
 
-            return new LedgerEntry(recordedAt, licenseId, licensee, keyId, notBefore, expiresAt, grace, installs, sha);
+            string? installationId = null;
+            if (r.TryGetProperty("installationId", out var installationElement))
+            {
+                if (installationElement.ValueKind != JsonValueKind.String) return null;
+                installationId = installationElement.GetString();
+                if (!InstallationIds.IsValid(installationId)) return null;
+            }
+
+            Guid? activationRequestId = null;
+            Guid? customerId = null;
+            string? issuedBy = null;
+            var hasRequestId = r.TryGetProperty("activationRequestId", out var requestElement);
+            var hasCustomerId = r.TryGetProperty("customerId", out var customerElement);
+            var hasIssuedBy = r.TryGetProperty("issuedBy", out var actorElement);
+            var hasRenewedFrom = r.TryGetProperty("renewedFromLicenseId", out var renewedFromElement);
+            string? renewedFromLicenseId = null;
+            if (hasRenewedFrom)
+            {
+                if (renewedFromElement.ValueKind != JsonValueKind.String
+                    || string.IsNullOrWhiteSpace(renewedFromElement.GetString())
+                    || renewedFromElement.GetString()!.Length > LicenseLimits.MaxLicenseIdLength)
+                    return null;
+                renewedFromLicenseId = renewedFromElement.GetString();
+            }
+            if (hasRequestId)
+            {
+                if (!hasCustomerId || !hasIssuedBy
+                    || requestElement.ValueKind != JsonValueKind.String
+                    || customerElement.ValueKind != JsonValueKind.String
+                    || actorElement.ValueKind != JsonValueKind.String
+                    || !Guid.TryParse(requestElement.GetString(), out var parsedRequestId)
+                    || !Guid.TryParse(customerElement.GetString(), out var parsedCustomerId)
+                    || parsedRequestId == Guid.Empty || parsedCustomerId == Guid.Empty
+                    || string.IsNullOrWhiteSpace(actorElement.GetString()) || installationId is null)
+                    return null;
+                activationRequestId = parsedRequestId;
+                customerId = parsedCustomerId;
+                issuedBy = actorElement.GetString();
+            }
+            else if (hasIssuedBy || hasCustomerId)
+            {
+                if (renewedFromLicenseId is null || !hasIssuedBy || actorElement.ValueKind != JsonValueKind.String
+                    || string.IsNullOrWhiteSpace(actorElement.GetString())) return null;
+                issuedBy = actorElement.GetString();
+                if (hasCustomerId)
+                {
+                    if (customerElement.ValueKind != JsonValueKind.String
+                        || !Guid.TryParse(customerElement.GetString(), out var parsedCustomerId)
+                        || parsedCustomerId == Guid.Empty) return null;
+                    customerId = parsedCustomerId;
+                }
+            }
+
+            return new LedgerEntry(recordedAt, licenseId, licensee, keyId, notBefore, expiresAt, grace, installs, sha,
+                installationId, activationRequestId, customerId, issuedBy, renewedFromLicenseId);
         }
         catch (JsonException)
         {
