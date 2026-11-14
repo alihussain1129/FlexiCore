@@ -236,4 +236,35 @@ public sealed class TrustEnforcementTests : IDisposable
         var restored = PublicKeyExport.Read(Path.Combine(paths2.KeysDirectory, ProdId + ".public.json")).Single();
         Assert.True(restored.SubjectPublicKeyInfo.AsSpan().SequenceEqual(LocalPublic(ProdId).SubjectPublicKeyInfo));
     }
+
+    [Fact]
+    public void Retiring_a_key_keeps_its_licenses_valid_and_the_standby_key_keeps_issuing()
+    {
+        const string oldId = "rot-old-1";
+        const string newId = "rot-new-1";
+        _keys.Create(oldId, Pass, Pass);
+        _keys.Create(newId, Pass, Pass);
+        var erp = WriteErp(LocalPublic(oldId), LocalPublic(newId));
+        var manager = Manager(erp);
+        var issuer = Issuer(manager);
+
+        var first = issuer.Issue(Input(oldId, "FC-ROT-0001"));
+        Assert.Equal(oldId, first.KeyId);
+        var firstBytes = File.ReadAllBytes(first.LicensePath);
+
+        manager.Retire(oldId);
+
+        // The retired key can no longer sign new licenses.
+        Assert.Throws<LicenseToolException>(() => issuer.Issue(Input(oldId, "FC-ROT-0002")));
+
+        // The standby key keeps issuing.
+        var second = issuer.Issue(Input(newId, "FC-ROT-0003"));
+        Assert.Equal(newId, second.KeyId);
+        var secondBytes = File.ReadAllBytes(second.LicensePath);
+
+        // The ERP trust file is unchanged, so both licenses still verify.
+        var verifier = new LicenseVerifier(ProductionKeyLoader.ParseKeySet(File.ReadAllBytes(erp)), _time);
+        Assert.Equal(LicenseStatus.Valid, verifier.Verify(firstBytes).Status);
+        Assert.Equal(LicenseStatus.Valid, verifier.Verify(secondBytes).Status);
+    }
 }
