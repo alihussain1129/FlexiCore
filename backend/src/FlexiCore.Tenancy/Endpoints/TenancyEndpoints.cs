@@ -99,20 +99,33 @@ internal static class TenancyEndpoints
     }
 
     private static async Task<IResult> ListCompaniesAsync(
-        int? limit, int? offset, ClaimsPrincipal principal, TenancyStore store, CancellationToken ct)
+        int? limit, int? offset, ClaimsPrincipal principal, HttpContext http, TenancyStore store,
+        IModuleAccessPolicy entitlements, CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
         if (!TryGetListPage(limit, offset, out var pageSize, out var pageOffset))
             return InvalidListPage();
-        return Results.Ok(await store.ListCompaniesAsync(userId, pageSize, pageOffset, ct));
+        var companies = await store.ListCompaniesAsync(userId, pageSize, pageOffset, ct);
+        foreach (var organizationId in companies.Select(c => c.OrganizationId).Distinct())
+        {
+            var access = await entitlements.CheckAsync(userId, organizationId, "core", "companies.read", CorrelationId(http), ct);
+            if (!access.Allowed) return EntitlementDenied();
+        }
+        return Results.Ok(companies);
     }
 
     private static async Task<IResult> GetCompanyAsync(
-        Guid companyId, ClaimsPrincipal principal, TenancyStore store, CancellationToken ct)
+        Guid companyId, HttpContext http, ClaimsPrincipal principal, TenancyStore store,
+        IModuleAccessPolicy entitlements, CancellationToken ct)
     {
         if (!TryGetUserId(principal, out var userId)) return Results.Unauthorized();
 
         var company = await store.GetCompanyAsync(userId, companyId, ct);
+        if (company is not null)
+        {
+            var access = await entitlements.CheckAsync(userId, company.OrganizationId, "core", "companies.read", CorrelationId(http), ct);
+            if (!access.Allowed) return EntitlementDenied();
+        }
         return company is null ? Results.NotFound() : Results.Ok(company);
     }
 
@@ -199,6 +212,12 @@ internal static class TenancyEndpoints
         {
             ["pagination"] = [$"Limit must be 1 to {DefaultListSize} and offset must be 0 to {MaxListOffset}."]
         });
+
+    private static IResult EntitlementDenied() => Results.Problem(
+        statusCode: StatusCodes.Status403Forbidden,
+        title: "Licensed module access required",
+        detail: "The requested ERP module or feature is unavailable for this organization.",
+        type: "urn:flexicore:problem:entitlement-required");
 
     private static void ValidateName(string? name, Dictionary<string, string[]> errors)
     {

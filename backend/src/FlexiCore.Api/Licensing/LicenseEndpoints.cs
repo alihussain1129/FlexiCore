@@ -48,6 +48,7 @@ internal static class LicenseEndpoints
         if (settings.Mode == DeploymentMode.Hosted)
         {
             group.MapGet("/status", HostedStatus).RequireAuthorization();
+            HostedLicensingEndpoints.Map(endpoints);
             return; // no import route in Hosted mode, so PUT returns 404
         }
 
@@ -58,6 +59,9 @@ internal static class LicenseEndpoints
         group.MapGet("/request", RequestCode)
             .RequireAuthorization(LocalActivationAuthorization.PolicyName);
         group.MapPut("", ImportAsync)
+            .RequireAuthorization(LocalActivationAuthorization.PolicyName)
+            .RequireRateLimiting(LicensingModule.ImportRateLimitPolicy);
+        group.MapPut("/revocations", ImportRevocationsAsync)
             .RequireAuthorization(LocalActivationAuthorization.PolicyName)
             .RequireRateLimiting(LicensingModule.ImportRateLimitPolicy);
     }
@@ -137,6 +141,10 @@ internal static class LicenseEndpoints
                 return Problem(StatusCodes.Status503ServiceUnavailable, "License verification is unavailable",
                     "license-verification-unavailable", LicenseService.ReasonCode(result.Verification));
 
+            case LicenseImportOutcome.Revoked:
+                return Problem(StatusCodes.Status422UnprocessableEntity, "This license has been revoked",
+                    "license-revoked", LicenseService.ReasonCode(result.Verification));
+
             case LicenseImportOutcome.StorageFailed:
                 logger.LogError("License import failed: storage error (correlation {CorrelationId})", correlationId);
                 return Problem(StatusCodes.Status503ServiceUnavailable, "The license could not be stored", "license-storage-failed");
@@ -147,6 +155,44 @@ internal static class LicenseEndpoints
                     LicenseService.ReasonCode(result.Verification), correlationId);
                 return RejectedProblem(result.Verification);
         }
+    }
+
+    private static async Task<IResult> ImportRevocationsAsync(HttpContext http, LicenseService service, CancellationToken ct)
+    {
+        http.Response.Headers.CacheControl = "no-store";
+        if (!MediaTypeHeaderValue.TryParse(http.Request.ContentType, out var mediaType)
+            || !string.Equals(mediaType.MediaType.Value, "application/json", StringComparison.OrdinalIgnoreCase))
+            return Problem(StatusCodes.Status415UnsupportedMediaType, "Revocation snapshot must be sent as application/json",
+                "revocation-unsupported-media-type");
+        if (http.Request.ContentLength is > SignedRevocationListVerifier.MaxFileBytes) return TooLarge();
+
+        var buffer = new byte[SignedRevocationListVerifier.MaxFileBytes + 1];
+        var total = 0;
+        while (total < buffer.Length)
+        {
+            var read = await http.Request.Body.ReadAsync(buffer.AsMemory(total), ct);
+            if (read == 0) break;
+            total += read;
+        }
+        if (total > SignedRevocationListVerifier.MaxFileBytes) return TooLarge();
+
+        var result = await service.ImportRevocationsAsync(buffer.AsSpan(0, total).ToArray(), ct);
+        return result.Outcome switch
+        {
+            RevocationImportOutcome.Imported => Results.Ok(new { state = "imported" }),
+            RevocationImportOutcome.Unchanged => Results.Ok(new { state = "unchanged" }),
+            RevocationImportOutcome.OlderSnapshot or RevocationImportOutcome.RollbackAttempt =>
+                Problem(StatusCodes.Status409Conflict, "The snapshot is older or removes prior revocations",
+                    "revocation-rollback-rejected"),
+            RevocationImportOutcome.VerificationUnavailable =>
+                Problem(StatusCodes.Status503ServiceUnavailable, "Revocation verification is unavailable",
+                    "revocation-verification-unavailable"),
+            RevocationImportOutcome.StorageFailed =>
+                Problem(StatusCodes.Status503ServiceUnavailable, "The revocation snapshot could not be stored",
+                    "revocation-storage-failed"),
+            _ => Problem(StatusCodes.Status422UnprocessableEntity, "The revocation snapshot was rejected",
+                "revocation-rejected", result.Error.ToString()),
+        };
     }
 
     private static IResult RejectedProblem(LicenseStatus status) => status switch
@@ -197,6 +243,7 @@ internal static class LicenseEndpoints
         LicenseState.NotYetValid => "notYetValid",
         LicenseState.Invalid => "invalid",
         LicenseState.Unavailable => "unavailable",
+        LicenseState.Revoked => "revoked",
         _ => throw new ArgumentOutOfRangeException(nameof(state)),
     };
 }

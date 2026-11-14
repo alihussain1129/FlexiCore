@@ -12,6 +12,7 @@ public enum LicenseState
     Invalid,
     /// <summary>The system cannot decide: no trusted keys, or the store cannot be read. Never means "accepted".</summary>
     Unavailable,
+    Revoked,
 }
 
 /// <summary>Current license state. License details are present only for authentic files (including expired and not-yet-valid).</summary>
@@ -29,6 +30,7 @@ public enum LicenseImportOutcome
     Rejected,
     OlderThanCurrent,
     VerificationUnavailable,
+    Revoked,
     StorageFailed,
 }
 
@@ -38,8 +40,8 @@ public sealed record LicenseImportResult(
     LicenseStatusReport? Report);
 
 /// <summary>
-/// Reads and imports licenses through an <see cref="ILicenseStore"/>. A license is fully verified before the store is
-/// touched, so a failed import never changes the stored file. This service enforces nothing; it only reports.
+/// Reads and imports licenses through an <see cref="ILicenseStore"/>. It verifies signatures, installation binding,
+/// revocation state, and issuance age before replacing the stored file. Failed imports preserve the prior bytes.
 /// </summary>
 public sealed class LicenseService
 {
@@ -49,10 +51,12 @@ public sealed class LicenseService
     private readonly SemaphoreSlim _importLock = new(1, 1);
     private readonly IInstallationIdentity _identity;
     private readonly bool _requireBinding;
+    private readonly RevocationListService? _revocations;
 
     public LicenseService(
         ILicenseStore store, LicenseVerifier verifier, TimeProvider time,
-        IInstallationIdentity? identity = null, bool requireBinding = false)
+        IInstallationIdentity? identity = null, bool requireBinding = false,
+        RevocationListService? revocations = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(verifier);
@@ -62,6 +66,7 @@ public sealed class LicenseService
         _time = time;
         _identity = identity ?? new MachineInstallationIdentity();
         _requireBinding = requireBinding;
+        _revocations = revocations;
     }
 
     public async Task<LicenseStatusReport> GetStatusAsync(CancellationToken cancellationToken)
@@ -83,7 +88,16 @@ public sealed class LicenseService
         if (stored is null)
             return new LicenseStatusReport(LicenseState.Missing, null, null, null, now);
 
-        return Evaluate(Gate(_verifier.Verify(stored)), now);
+        var verification = Gate(_verifier.Verify(stored));
+        var report = Evaluate(verification, now);
+        if (_revocations is null || !verification.IsAccepted || verification.Payload is null) return report;
+        var revocation = await _revocations.CheckAsync(verification.Payload.LicenseId, cancellationToken);
+        return revocation.State switch
+        {
+            RevocationCheckState.Revoked => report with { State = LicenseState.Revoked, Reason = revocation.Reason },
+            RevocationCheckState.Unavailable => report with { State = LicenseState.Unavailable, Reason = revocation.Reason, License = null },
+            _ => report,
+        };
     }
 
     public async Task<LicenseImportResult> ImportAsync(byte[] content, CancellationToken cancellationToken)
@@ -109,6 +123,15 @@ public sealed class LicenseService
         await _importLock.WaitAsync(cancellationToken);
         try
         {
+            if (_revocations is not null && candidate.Payload is not null)
+            {
+                var revocation = await _revocations.CheckAsync(candidate.Payload.LicenseId, cancellationToken);
+                if (revocation.State == RevocationCheckState.Revoked)
+                    return new LicenseImportResult(LicenseImportOutcome.Revoked, LicenseStatus.Revoked, null);
+                if (revocation.State == RevocationCheckState.Unavailable)
+                    return new LicenseImportResult(LicenseImportOutcome.VerificationUnavailable, LicenseStatus.RevocationUnavailable, null);
+            }
+
             byte[]? current;
             try
             {
@@ -149,6 +172,15 @@ public sealed class LicenseService
         }
     }
 
+    public async Task<RevocationImportResult> ImportRevocationsAsync(byte[] content, CancellationToken cancellationToken)
+    {
+        if (_revocations is null)
+            return new RevocationImportResult(RevocationImportOutcome.VerificationUnavailable, RevocationListError.NoTrustedKeys);
+        await _importLock.WaitAsync(cancellationToken);
+        try { return await _revocations.ImportAsync(content, cancellationToken); }
+        finally { _importLock.Release(); }
+    }
+
     /// <summary>
     /// Installation binding. An accepted license bound to another computer is refused; an unbound license is
     /// refused when binding is required. Fail closed: if this computer's identity cannot be read, bound licenses fail.
@@ -183,6 +215,8 @@ public sealed class LicenseService
         LicenseStatus.Expired => "expired",
         LicenseStatus.WrongInstallation => "wrong_installation",
         LicenseStatus.NotBound => "not_bound",
+        LicenseStatus.Revoked => "license_revoked",
+        LicenseStatus.RevocationUnavailable => "revocation_status_unavailable",
         _ => "unknown",
     };
 

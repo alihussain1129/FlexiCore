@@ -17,6 +17,7 @@ public static class TenancyModule
     public static IServiceCollection AddTenancyModule(this IServiceCollection services)
     {
         services.TryAddSingleton<ITenantConnectionFactory, TenantConnectionFactory>();
+        services.TryAddSingleton<IModuleAccessPolicy, DenyUnconfiguredModuleAccessPolicy>();
         services.TryAddSingleton<TenancyAuditWriter>();
         services.TryAddSingleton<TenancyStore>();
 

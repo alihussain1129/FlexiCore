@@ -53,8 +53,18 @@ public sealed class FileLicenseStore : ILicenseStore
         try
         {
             Directory.CreateDirectory(_directory);
-            await using (var stream = new FileStream(
-                temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, useAsync: true))
+            var options = new FileStreamOptions
+            {
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.Write,
+                Share = FileShare.None,
+                BufferSize = 4096,
+                Options = FileOptions.Asynchronous,
+            };
+            if (!OperatingSystem.IsWindows())
+                options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+
+            await using (var stream = new FileStream(temp, options))
             {
                 await stream.WriteAsync(content, cancellationToken);
                 await stream.FlushAsync(cancellationToken);

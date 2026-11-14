@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Configuration;
 
 namespace FlexiCore.Api.Licensing;
 
@@ -28,10 +29,10 @@ internal static class LocalSetupEndpoints
     }
 
     private static async Task<IResult> StatusAsync(
-        HttpContext http, LicenseService licenses, UserStore users, CancellationToken ct)
+        HttpContext http, LicenseService licenses, UserStore users, IConfiguration configuration, CancellationToken ct)
     {
         http.Response.Headers.CacheControl = "no-store";
-        if (!LocalActivationAuthorization.IsLocalAnonymousRequest(http))
+        if (!LocalActivationAuthorization.IsLocalAnonymousRequest(http, configuration))
             return LocalOnlyProblem();
 
         var license = await licenses.GetStatusAsync(ct);
@@ -43,10 +44,10 @@ internal static class LocalSetupEndpoints
 
     private static async Task<IResult> CreateFirstOwnerAsync(
         RegisterRequest request, HttpContext http, LicenseService licenses,
-        IPasswordService passwords, UserStore users, CancellationToken ct)
+        IPasswordService passwords, UserStore users, IConfiguration configuration, CancellationToken ct)
     {
         http.Response.Headers.CacheControl = "no-store";
-        if (!LocalActivationAuthorization.IsLocalAnonymousRequest(http))
+        if (!LocalActivationAuthorization.IsLocalAnonymousRequest(http, configuration))
             return LocalOnlyProblem();
 
         var license = await licenses.GetStatusAsync(ct);

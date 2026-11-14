@@ -1,9 +1,10 @@
 namespace FlexiCore.Licensing;
 
 /// <summary>
-/// Deterministic outcome of verifying a license file. Checks run in a fixed order:
+/// Verification outcome for a license file or its revocation state. Signature checks run in a fixed order:
 /// FileTooLarge, NoTrustedKeys, Malformed, UnsupportedSchemaVersion, UnknownKeyId,
 /// InvalidSignature, InvalidPayload, WrongProduct, NotYetValid, then Valid / ValidInGrace / Expired.
+/// Revoked and RevocationUnavailable are added by the higher-level service after signature verification.
 /// </summary>
 public enum LicenseStatus
 {
@@ -21,6 +22,8 @@ public enum LicenseStatus
     Expired,
     WrongInstallation,
     NotBound,
+    Revoked,
+    RevocationUnavailable,
 }
 
 /// <summary>

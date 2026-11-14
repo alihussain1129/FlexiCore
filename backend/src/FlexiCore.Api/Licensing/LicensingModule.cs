@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using FlexiCore.Tenancy;
 
 namespace FlexiCore.Api.Licensing;
 
@@ -26,6 +27,13 @@ public static class LicensingModule
         services.AddSingleton(settings);
         services.TryAddSingleton(TimeProvider.System);
 
+        services.AddSingleton(sp => new LicenseVerifier(ProductionKeyLoader.Load(), sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton(sp => new SignedRevocationListVerifier(ProductionKeyLoader.Load()));
+        services.AddSingleton(sp => new SignedModuleEntitlementVerifier(
+            ProductionKeyLoader.Load(), sp.GetRequiredService<TimeProvider>()));
+        services.TryAddSingleton<LicensingStore>();
+        services.AddSingleton<IModuleAccessPolicy, DatabaseModuleAccessPolicy>();
+
         if (settings.Mode != DeploymentMode.Local) return services;
 
         var permit = DefaultImportPermitPerMinute;
@@ -34,7 +42,12 @@ public static class LicensingModule
             throw new InvalidOperationException("License:ImportPermitPerMinute must be an integer from 1 to 1000.");
 
         services.AddSingleton<ILicenseStore>(_ => new FileLicenseStore(settings.LicenseDirectory!));
-        services.AddSingleton(sp => new LicenseVerifier(ProductionKeyLoader.Load(), sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton<IRevocationListStore>(_ => new FileRevocationListStore(settings.LicenseDirectory!));
+        services.AddSingleton(sp => new MonotonicClock(sp.GetRequiredService<TimeProvider>(), settings.LicenseDirectory!));
+        services.AddSingleton(sp => new RevocationListService(
+            sp.GetRequiredService<IRevocationListStore>(),
+            sp.GetRequiredService<SignedRevocationListVerifier>(),
+            sp.GetRequiredService<MonotonicClock>()));
         var requireBinding = true;
         var rawBinding = configuration["License:RequireBinding"];
         if (!string.IsNullOrEmpty(rawBinding) && !bool.TryParse(rawBinding, out requireBinding))
@@ -42,9 +55,10 @@ public static class LicensingModule
         services.AddSingleton(sp => new LicenseService(
             sp.GetRequiredService<ILicenseStore>(),
             sp.GetRequiredService<LicenseVerifier>(),
-            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<MonotonicClock>(),
             new MachineInstallationIdentity(),
-            requireBinding));
+            requireBinding,
+            sp.GetRequiredService<RevocationListService>()));
         LocalActivationAuthorization.Register(services);
 
         // Adds a policy only; the 429 handler is the global one registered by the Identity module.

@@ -28,11 +28,13 @@ public sealed class TenancyStore
 
     private readonly ITenantConnectionFactory _factory;
     private readonly TenancyAuditWriter _audit;
+    private readonly IModuleAccessPolicy _entitlements;
 
-    public TenancyStore(ITenantConnectionFactory factory, TenancyAuditWriter audit)
+    public TenancyStore(ITenantConnectionFactory factory, TenancyAuditWriter audit, IModuleAccessPolicy entitlements)
     {
         _factory = factory;
         _audit = audit;
+        _entitlements = entitlements;
     }
 
     private sealed record AuditTarget(
@@ -56,7 +58,8 @@ public sealed class TenancyStore
             command.Parameters.AddWithValue("name", name);
             command.Parameters.AddWithValue("slug", slug);
             command.Parameters.AddWithValue("industry_key", industryKey);
-        }, new AuditTarget("tenancy.company.create", "organization", organizationId.ToString(), slug), ct);
+        }, new AuditTarget("tenancy.company.create", "organization", organizationId.ToString(), slug),
+            ct, organizationId, "companies.create", enforceUsers: false);
 
     public Task<CreateResult> AddMemberAsync(
         Guid userId, Guid organizationId, string normalizedEmail, string role, string? correlationId, CancellationToken ct) =>
@@ -66,7 +69,7 @@ public sealed class TenancyStore
             command.Parameters.AddWithValue("email", normalizedEmail);
             command.Parameters.AddWithValue("role", role);
         }, new AuditTarget("tenancy.member.add", "organization", organizationId.ToString(), role,
-            MetadataKey: "role", ConflictReason: "already_member"), ct);
+            MetadataKey: "role", ConflictReason: "already_member"), ct, organizationId, "users.invite", enforceUsers: true);
 
     public Task<CreateResult> ChangeMemberRoleAsync(
         Guid userId, Guid organizationId, Guid targetUserId, string role, string? correlationId, CancellationToken ct) =>
@@ -165,13 +168,49 @@ public sealed class TenancyStore
 
     private async Task<CreateResult> CreateAsync(
         Guid userId, string? correlationId, string sql, Action<NpgsqlCommand> bind, AuditTarget target,
-        CancellationToken ct)
+        CancellationToken ct, Guid? entitlementOrganizationId = null, string? entitlementFeature = null,
+        bool enforceUsers = false)
     {
         CreateOutcome refused;
         try
         {
             await using var scope = await _factory.OpenAsync(
                 TenantContext.For(userId, correlationId: correlationId), ct);
+            if (entitlementOrganizationId is { } organizationId)
+            {
+                await using (var gate = new NpgsqlCommand(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(@key, 581284))", scope.Connection, scope.Transaction))
+                {
+                    gate.Parameters.AddWithValue("key", "licensing:" + organizationId.ToString("N"));
+                    await gate.ExecuteNonQueryAsync(ct);
+                }
+                var decision = await _entitlements.CheckWithinAsync(
+                    scope, userId, organizationId, "core", entitlementFeature ?? "companies.create", correlationId, ct);
+                if (!decision.Allowed)
+                {
+                    await _audit.WriteAsync(new TenancyAuditEvent(target.Action, "denied", userId, target.TargetType,
+                        target.TargetId, correlationId, new Dictionary<string, string> { [target.MetadataKey] = target.Slug,
+                            ["reason"] = decision.Reason ?? "entitlement_required" }), ct);
+                    return new CreateResult(CreateOutcome.Forbidden);
+                }
+                var limit = enforceUsers ? decision.MaxUsers : decision.MaxCompanies;
+                if (limit is { } maximum)
+                {
+                    await using var count = new NpgsqlCommand(
+                        enforceUsers
+                            ? "SELECT tenancy.count_active_organization_users(@org)"
+                            : "SELECT tenancy.count_organization_companies(@org)",
+                        scope.Connection, scope.Transaction);
+                    count.Parameters.AddWithValue("org", organizationId);
+                    if (Convert.ToInt64(await count.ExecuteScalarAsync(ct)) >= maximum)
+                    {
+                        await _audit.WriteAsync(new TenancyAuditEvent(target.Action, "denied", userId, target.TargetType,
+                            target.TargetId, correlationId, new Dictionary<string, string> { [target.MetadataKey] = target.Slug,
+                                ["reason"] = enforceUsers ? "user_limit_reached" : "company_limit_reached" }), ct);
+                        return new CreateResult(CreateOutcome.QuotaExceeded);
+                    }
+                }
+            }
             await using var command = new NpgsqlCommand(sql, scope.Connection, scope.Transaction);
             bind(command);
             var id = (Guid)(await command.ExecuteScalarAsync(ct))!;
