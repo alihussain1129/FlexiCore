@@ -84,7 +84,7 @@ public static class IssueLedger
         // One write, under the caller's lock. If the file is not empty and its last byte is not a line feed (an
         // unterminated or incomplete final record), the new record starts on its own line. Existing bytes are never
         // edited, repaired or dropped, so evidence of an incomplete record is preserved.
-        var newline = new UTF8Encoding(false).GetBytes(Environment.NewLine);
+        var newline = new UTF8Encoding(false).GetBytes("\n");
         var json = stream.ToArray();
         using var file = new FileStream(full, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
         var needsSeparator = false;
