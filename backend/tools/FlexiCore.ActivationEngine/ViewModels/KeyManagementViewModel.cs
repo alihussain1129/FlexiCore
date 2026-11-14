@@ -163,9 +163,11 @@ public sealed class KeyManagementViewModel : PageViewModel
     {
         ClearStatus();
         IsBusy = true;
+        var created = false;
         try
         {
             var id = await Task.Run(() => _service.CreateRotatedKey(passphrase, confirmation));
+            created = true;
             SetStatus(StatusKind.Success,
                 "Key " + id + " was created. It is not used for signing yet. Add its public key to the ERP key file "
                 + "(use Copy public key entry), rebuild the ERP, then press Check ERP key file.");
@@ -179,6 +181,6 @@ public sealed class KeyManagementViewModel : PageViewModel
         {
             IsBusy = false;
         }
-        return true;
+        return created;
     }
 }

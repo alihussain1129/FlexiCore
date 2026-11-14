@@ -30,9 +30,8 @@ public sealed class MainViewModel : ObservableObject
         options ??= new ActivationEngineOptions();
 
         var keyService = new KeyService(paths, options.PlatformSigningKeyStore);
-        var issueService = new IssueService(paths, time, keyService);
-
         var keyManager = new KeyManagementService(paths, keyService, time);
+        var issueService = new IssueService(paths, time, keyService, keyManager);
         var activate = new ActivateViewModel(dialogs);
         var issueDialogs = options.UseAutoSave
             ? new AutoSaveDialogService(

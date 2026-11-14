@@ -79,7 +79,7 @@ internal static class FlexiSections
         var s = status.ToLowerInvariant();
         IBrush surface;
         IBrush text;
-        if (s.Contains("expired") || s.Contains("revoked") || s.Contains("compromised"))
+        if (s.Contains("expired") || s.Contains("revoked") || s.Contains("compromised") || s.Contains("mismatch"))
         { surface = ActivationDesignSystem.StatusErrorSurface; text = ActivationDesignSystem.StatusErrorText; }
         else if (s.Contains("retired") || s.Contains("inactive") || s.Contains("disabled") || s.Contains("pending"))
         { surface = ActivationDesignSystem.StatusWarningSurface; text = ActivationDesignSystem.Warning; }

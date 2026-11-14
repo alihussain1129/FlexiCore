@@ -196,7 +196,8 @@ public sealed record ManagedKey(
     DateTimeOffset? FirstUsed,
     DateTimeOffset? LastUsed,
     int Outstanding,
-    string? PublicKeyBase64)
+    string? PublicKeyBase64,
+    bool ErpIdPresent = false)
 {
     public bool IsTest =>
         KeyId.StartsWith("dev-", StringComparison.Ordinal) || KeyId.StartsWith("test", StringComparison.Ordinal);
@@ -211,6 +212,7 @@ public sealed record ManagedKey(
     public string State =>
         Retired ? "Retired"
         : Problem is not null ? "Problem"
+        : InErpFile == false && ErpIdPresent ? "Fingerprint mismatch"
         : PendingErp && InErpFile != true ? "New, not in ERP yet"
         : "Active";
 }
@@ -239,12 +241,12 @@ public sealed class KeyOverview
     public bool IsSelectable(string keyId) => Keys.Any(k => k.KeyId == keyId && Selectable(k));
 
     /// <summary>
-    /// Usable (not retired, no problem), not known to be missing from the ERP key file (test keys excepted),
+    /// Usable (not retired, no problem), confirmed present in the ERP key file (test keys excepted),
     /// and not a brand-new key that has not been confirmed in the ERP yet.
     /// </summary>
     internal static bool Selectable(ManagedKey k) =>
         k.Usable
-        && (k.InErpFile != false || k.IsTest)
+        && (k.IsTest || k.InErpFile == true)
         && !(k.PendingErp && k.InErpFile != true);
 }
 
@@ -308,7 +310,7 @@ public sealed class KeyManagementService
                 erpKeys = PublicKeyExport.Read(erpFile)
                     .ToDictionary(k => k.KeyId, k => k.SubjectPublicKeyInfo, StringComparer.Ordinal);
             }
-            catch (Exception ex) when (ex is LicenseToolException or IOException or UnauthorizedAccessException or ArgumentException)
+            catch (Exception ex) when (ex is LicenseToolException or IOException or UnauthorizedAccessException or ArgumentException or JsonException or FormatException)
             {
                 erpProblem = "The ERP key file could not be read.";
             }
@@ -346,7 +348,8 @@ public sealed class KeyManagementService
                 used.Count == 0 ? null : (DateTimeOffset?)used.Min(e => e.RecordedAt),
                 used.Count == 0 ? null : (DateTimeOffset?)used.Max(e => e.RecordedAt),
                 used.Count(e => e.StatusAt(now) != TermStatus.Expired),
-                spki is null ? null : Convert.ToBase64String(spki)));
+                spki is null ? null : Convert.ToBase64String(spki),
+                erpKeys is not null && erpKeys.ContainsKey(info.KeyId)));
         }
 
         var pick = rows.Where(KeyOverview.Selectable)
@@ -423,6 +426,13 @@ public sealed class KeyManagementService
     public void MarkBuiltIntoErp(string keyId)
     {
         KeyStore.ValidateKeyId(keyId);
+        var row = Load().Keys.FirstOrDefault(k => k.KeyId == keyId)
+            ?? throw new LicenseToolException("No local signing key named '" + keyId + "' was found. Nothing was changed.");
+        if (!row.IsTest && row.InErpFile != true)
+            throw new LicenseToolException(
+                "The public key of '" + keyId + "' is not confirmed in the ERP key file with an identical value"
+                + (row.ErpIdPresent ? " (the ERP file lists this id with a different key). " : ". ")
+                + "Nothing was changed.");
         _registry.SetPending(keyId, false);
         _registry.LogEvent(_time.GetUtcNow(), keyId, "marked-in-erp", "Confirmed by the owner as built into the ERP.");
     }
@@ -454,6 +464,7 @@ public sealed class KeyManagementService
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var k in _keys.List(out _)) taken.Add(k.KeyId);
         foreach (var k in _registry.Load(out _).Keys) taken.Add(k.KeyId);
+        foreach (var embeddedId in EmbeddedProductionKeyIds()) taken.Add(embeddedId);
 
         var erpFile = _registry.Load(out _).ErpKeyFile ?? _discover();
         if (erpFile is not null)
@@ -473,6 +484,16 @@ public sealed class KeyManagementService
         return "fc-" + year + "-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(3)).ToLowerInvariant();
     }
 
+    /// <summary>
+    /// Key ids already built into this assembly's production trust list. These are known even when the ERP key
+    /// file cannot be found, so an id such as fc-2026-a is never handed out again.
+    /// </summary>
+    private static IEnumerable<string> EmbeddedProductionKeyIds()
+    {
+        try { return ProductionKeyLoader.Load().Select(k => k.KeyId).ToList(); }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { return Array.Empty<string>(); }
+    }
+
     public IReadOnlyList<KeyEvent> ReadEvents(int max) => _registry.ReadEvents(max);
 
     /// <summary>True when the id is used by a local key, the key registry or the ERP key file.</summary>
@@ -482,6 +503,7 @@ public sealed class KeyManagementService
         foreach (var k in _keys.List(out _)) taken.Add(k.KeyId);
         var registry = _registry.Load(out _);
         foreach (var k in registry.Keys) taken.Add(k.KeyId);
+        foreach (var embeddedId in EmbeddedProductionKeyIds()) taken.Add(embeddedId);
         var erpFile = registry.ErpKeyFile ?? _discover();
         if (erpFile is not null)
         {

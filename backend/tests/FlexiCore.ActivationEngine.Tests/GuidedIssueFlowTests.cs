@@ -37,7 +37,9 @@ public sealed class GuidedIssueFlowTests : IDisposable
     {
         var keys = new KeyService(_paths);
         keys.Create("test-key-1", Passphrase, Passphrase);
-        var vm = new IssueViewModel(keys, new IssueService(_paths, _clock), _dialogs, _clock);
+        var keyManager = new KeyManagementService(_paths, keys, _clock);
+        var issueService = new IssueService(_paths, _clock, keys, keyManager);
+        var vm = new IssueViewModel(keys, issueService, _dialogs, _clock);
         await vm.OnShownAsync();
         return vm;
     }

@@ -102,7 +102,8 @@ internal sealed class Owner : IDisposable
         Paths = new OwnerPaths(_dir.Combine("owner"));
         Keys = new KeyService(Paths);
         Time = new PinnedTimeProvider(Now);
-        Issue = new IssueService(Paths, Time);
+        KeyManager = new KeyManagementService(Paths, Keys, Time);
+        Issue = new IssueService(Paths, Time, Keys, KeyManager);
         OutDir = _dir.Combine("out");
         Directory.CreateDirectory(OutDir);
     }
@@ -110,6 +111,7 @@ internal sealed class Owner : IDisposable
     public OwnerPaths Paths { get; }
     public KeyService Keys { get; }
     public TimeProvider Time { get; }
+    public KeyManagementService KeyManager { get; }
     public IssueService Issue { get; }
     public string OutDir { get; }
     public string Root => _dir.Root;

@@ -52,8 +52,17 @@ public sealed class IssueServiceTests
         using var o = new Owner();
         var platformKeys = new FakePlatformSigningKeyStore(o.Paths);
         var keys = new KeyService(o.Paths, platformKeys);
+        var keyManager = new KeyManagementService(o.Paths, keys, o.Time);
         var created = keys.CreatePlatformKey("platform-test-1");
-        var issue = new IssueService(o.Paths, o.Time, keys);
+
+        // A platform key is eligible only after its public key is explicitly
+        // included in the ERP trust file, just like a software-backed key.
+        var erpKeyFile = Path.Combine(o.Root, "platform-test-erp-keys.json");
+        File.Copy(created.PublicKeyPath!, erpKeyFile);
+        keyManager.SetErpKeyFile(erpKeyFile);
+        Assert.True(keyManager.Load().IsSelectable(created.KeyId));
+
+        var issue = new IssueService(o.Paths, o.Time, keys, keyManager);
         var output = issue.Issue(o.Input("platform-test-1", "FC-PLATFORM-1") with
         {
             KeyId = created.KeyId,
@@ -84,6 +93,81 @@ public sealed class IssueServiceTests
         Assert.Equal(before, File.ReadAllBytes(dialogs.SavePath!));
         Assert.Equal(before, File.ReadAllBytes(owner.Paths.LedgerPath));
         Assert.Equal(StatusKind.Success.ToString(), page.StatusKindName);
+    }
+
+    [Fact]
+    public void Missing_exported_public_key_refuses_issuance_without_writing_anything()
+    {
+        using var owner = new Owner();
+        var key = owner.CreateKey();
+        var publicPath = Path.Combine(owner.Paths.KeysDirectory, key + ".public.json");
+        var outputPath = owner.Out("missing-public-key.lic");
+
+        File.Delete(publicPath);
+
+        Assert.Throws<LicenseToolException>(() =>
+            owner.Issue.Issue(owner.Input(key, output: outputPath)));
+
+        Assert.False(File.Exists(outputPath));
+        Assert.False(File.Exists(owner.Paths.LedgerPath));
+    }
+
+    [Fact]
+    public void Mismatched_exported_public_key_refuses_issuance_without_writing_anything()
+    {
+        using var owner = new Owner();
+        var key = owner.CreateKey();
+        var otherKey = owner.CreateKey("other-test-key");
+        var publicPath = Path.Combine(owner.Paths.KeysDirectory, key + ".public.json");
+        var otherPublicPath = Path.Combine(owner.Paths.KeysDirectory, otherKey + ".public.json");
+        var outputPath = owner.Out("mismatched-public-key.lic");
+
+        var otherPublicKey = PublicKeyExport.Read(otherPublicPath).Single();
+        var mismatchedSet = PublicKeyExport.Build(new[]
+        {
+            new TrustedKey(key, otherPublicKey.SubjectPublicKeyInfo)
+        });
+        File.WriteAllBytes(publicPath, mismatchedSet);
+
+        Assert.Throws<LicenseToolException>(() =>
+            owner.Issue.Issue(owner.Input(key, output: outputPath)));
+
+        Assert.False(File.Exists(outputPath));
+        Assert.False(File.Exists(owner.Paths.LedgerPath));
+    }
+
+    [Fact]
+    public void Corrupt_key_registry_blocks_issuance_without_writing_anything()
+    {
+        using var owner = new Owner();
+        var key = owner.CreateKey();
+        Directory.CreateDirectory(owner.Paths.Root);
+        File.WriteAllText(
+            Path.Combine(owner.Paths.Root, "key-registry.json"),
+            "{ this is not valid JSON");
+
+        var outputPath = owner.Out("registry-corrupt.lic");
+
+        Assert.Throws<LicenseToolException>(() =>
+            owner.Issue.Issue(owner.Input(key, output: outputPath)));
+
+        Assert.False(File.Exists(outputPath));
+        Assert.False(File.Exists(owner.Paths.LedgerPath));
+    }
+
+    [Fact]
+    public void Retired_key_blocks_issuance_without_writing_anything()
+    {
+        using var owner = new Owner();
+        var key = owner.CreateKey();
+        new KeyRegistry(owner.Paths).SetRetired(key, true, Owner.Now);
+        var outputPath = owner.Out("retired-key.lic");
+
+        Assert.Throws<LicenseToolException>(() =>
+            owner.Issue.Issue(owner.Input(key, output: outputPath)));
+
+        Assert.False(File.Exists(outputPath));
+        Assert.False(File.Exists(owner.Paths.LedgerPath));
     }
 
     [Fact]

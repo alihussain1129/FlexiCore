@@ -40,13 +40,19 @@ public sealed class IssueService
 {
     private readonly OwnerPaths _paths;
     private readonly TimeProvider _time;
-    private readonly KeyService? _keys;
+    private readonly KeyService _keys;
+    private readonly KeyManagementService _keyManagement;
 
-    public IssueService(OwnerPaths paths, TimeProvider time, KeyService? keys = null)
+    public IssueService(
+        OwnerPaths paths,
+        TimeProvider time,
+        KeyService keys,
+        KeyManagementService keyManagement)
     {
-        _paths = paths;
-        _time = time;
-        _keys = keys;
+        _paths = paths ?? throw new ArgumentNullException(nameof(paths));
+        _time = time ?? throw new ArgumentNullException(nameof(time));
+        _keys = keys ?? throw new ArgumentNullException(nameof(keys));
+        _keyManagement = keyManagement ?? throw new ArgumentNullException(nameof(keyManagement));
     }
 
     public static LicenseRequest BuildRequest(IssueInput input, DateTimeOffset now) =>
@@ -67,6 +73,19 @@ public sealed class IssueService
         var now = _time.GetUtcNow();
         KeyStore.ValidateKeyId(input.KeyId);
         var request = BuildRequest(input, now);
+
+        // Enforce owner key policy here, not only in the UI.
+        // A damaged key list or registry must never silently make a key eligible.
+        var keyOverview = _keyManagement.Load();
+        if (keyOverview.Problem is not null)
+            throw new LicenseToolException(
+                "The signing-key status could not be verified, so nothing was issued. "
+                + keyOverview.Problem, 2);
+
+        if (!keyOverview.IsSelectable(input.KeyId))
+            throw new LicenseToolException(
+                "Signing key '" + input.KeyId
+                + "' is not eligible for issuance. Check its status and ERP trust registration.");
 
         // Output location: never overwrite, folder must exist.
         OutputPathGuard.EnsureAbsolute(input.OutputPath, "The license file path");
@@ -103,26 +122,36 @@ public sealed class IssueService
             throw new LicenseToolException("The license id '" + request.LicenseId + "' was already issued. Use a new id.");
 
         // Sign with the existing issuer. It verifies the result with the production verifier before returning.
-        var privatePath = Path.Combine(_paths.KeysDirectory, input.KeyId + ".p8");
-        using var signer = _keys is null
-            ? KeyStore.Load(privatePath, input.Passphrase)
-            : _keys.OpenSigner(input.KeyId, input.Passphrase);
+        using var signer = _keys.OpenSigner(input.KeyId, input.Passphrase);
         var file = LicenseIssuer.Issue(request, signer);
 
-        // Second, independent check against the public key file that gets shipped to customers.
+        // Independently verify against the exported public key that is distributed to customers.
+        // Never fall back to the signer's own public key: that would not establish that the
+        // production/customer trust material matches the private signing key.
         var publicPath = Path.Combine(_paths.KeysDirectory, input.KeyId + ".public.json");
-        IReadOnlyList<TrustedKey> trusted;
-        string verifiedWith;
-        if (File.Exists(publicPath))
-        {
-            trusted = PublicKeyExport.Read(publicPath);
-            verifiedWith = "exported public key file " + input.KeyId + ".public.json";
-        }
-        else
-        {
-            trusted = new[] { new TrustedKey(signer.KeyId, signer.SubjectPublicKeyInfo) };
-            verifiedWith = "the signing key's own public key (no public key file found)";
-        }
+        if (!File.Exists(publicPath))
+            throw new LicenseToolException(
+                "The exported public key file is missing for '" + input.KeyId
+                + "'. Nothing was written. Restore or export the matching public key before issuing.");
+
+        var trusted = PublicKeyExport.Read(publicPath);
+        var matchingKeys = trusted
+            .Where(key => string.Equals(key.KeyId, signer.KeyId, StringComparison.Ordinal))
+            .ToArray();
+
+        if (matchingKeys.Length != 1)
+            throw new LicenseToolException(
+                "The exported public key set must contain exactly one entry for '" + signer.KeyId
+                + "'. Nothing was written.");
+
+        if (!matchingKeys[0].SubjectPublicKeyInfo.AsSpan()
+                .SequenceEqual(signer.SubjectPublicKeyInfo))
+            throw new LicenseToolException(
+                "The exported public key does not match the signing key '" + signer.KeyId
+                + "'. Nothing was written.");
+
+        const string verifiedWithPrefix = "exported public key file ";
+        var verifiedWith = verifiedWithPrefix + input.KeyId + ".public.json";
 
         var check = new LicenseVerifier(trusted, new PinnedTimeProvider(request.NotBefore)).Verify(file);
         if (check.Status != LicenseStatus.Valid)

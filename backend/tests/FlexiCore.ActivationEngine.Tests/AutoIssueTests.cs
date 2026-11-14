@@ -33,8 +33,10 @@ public sealed class AutoIssueTests : IDisposable
     {
         var keys = new KeyService(_paths);
         keys.Create("test-key-1", Passphrase, Passphrase);
+        var keyManager = new KeyManagementService(_paths, keys, _clock);
+        var issueService = new IssueService(_paths, _clock, keys, keyManager);
         var dialogs = new AutoSaveDialogService(new NoDialogs(), _licenses);
-        var vm = new IssueViewModel(keys, new IssueService(_paths, _clock), dialogs, _clock, _paths)
+        var vm = new IssueViewModel(keys, issueService, dialogs, _clock, _paths)
         {
             RequireRequestCode = true,
         };
