@@ -171,7 +171,7 @@ public sealed class LedgerRestoreService
         }
 
         var existing = current.Bytes;
-        var nl = Environment.NewLine;
+        var nl = "\n";
         var added = new StringBuilder();
         if (existing.Length > 0 && existing[^1] != (byte)'\n') added.Append(nl);
         foreach (var line in toAdd) added.Append(line).Append(nl);
