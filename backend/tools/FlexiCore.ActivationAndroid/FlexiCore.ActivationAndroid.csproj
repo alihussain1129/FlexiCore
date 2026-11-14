@@ -15,6 +15,7 @@
     <AndroidUseAapt2>true</AndroidUseAapt2>
     <AssemblyName>FlexiCore.ActivationAndroid</AssemblyName>
     <RootNamespace>FlexiCore.ActivationApp</RootNamespace>
+    <RuntimeIdentifier>android-arm64</RuntimeIdentifier>
   </PropertyGroup>
 
   <ItemGroup>
