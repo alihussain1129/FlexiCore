@@ -29,6 +29,7 @@
     <Compile Include="..\FlexiCore.ActivationApp\FlexiTokens.cs" Link="UI\FlexiTokens.cs" />
     <Compile Include="..\FlexiCore.ActivationApp\UI\**\*.cs" LinkBase="UI\Shared" />
     <AvaloniaResource Include="..\FlexiCore.ActivationApp\Assets\Fonts\*.ttf" Link="Assets\Fonts\%(Filename)%(Extension)" />
+    <AvaloniaResource Include="..\FlexiCore.ActivationApp\Assets\logo-512.png" Link="Assets\logo-512.png" />
   </ItemGroup>
 
 </Project>

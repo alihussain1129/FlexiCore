@@ -19,7 +19,7 @@ internal static class FlexiLogo
             _tried = true;
             try
             {
-                using var stream = AssetLoader.Open(new Uri("avares://FlexiCore.ActivationApp/Assets/logo-512.png"));
+                using var stream = AssetLoader.Open(new Uri("avares://" + typeof(FlexiLogo).Assembly.GetName().Name + "/Assets/logo-512.png"));
                 _bitmap = new Bitmap(stream);
             }
             catch
