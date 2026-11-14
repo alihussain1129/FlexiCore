@@ -51,10 +51,65 @@ class Company {
   final String role;
 }
 
+class LicensingSyncStatus {
+  const LicensingSyncStatus({
+    required this.isComplete,
+    required this.generatedAt,
+    required this.revocationNextUpdate,
+    required this.licenseCount,
+    required this.entitlementRevisionCount,
+  });
+
+  factory LicensingSyncStatus.fromJson(Map<String, dynamic> json) {
+    final nextUpdate = json['revocationNextUpdate'];
+    return LicensingSyncStatus(
+      isComplete: json['isComplete'] == true,
+      generatedAt: DateTime.tryParse(json['generatedAt'] as String? ?? ''),
+      revocationNextUpdate: nextUpdate is String
+          ? DateTime.tryParse(nextUpdate)
+          : null,
+      licenseCount: (json['licenses'] as List?)?.length ?? 0,
+      entitlementRevisionCount:
+          (json['entitlements'] as List?)?.length ?? 0,
+    );
+  }
+
+  final bool isComplete;
+  final DateTime? generatedAt;
+  final DateTime? revocationNextUpdate;
+  final int licenseCount;
+  final int entitlementRevisionCount;
+
+  String get state {
+    if (!isComplete) return 'Sync bundle is incomplete';
+    final nextUpdate = revocationNextUpdate;
+    if (nextUpdate == null) return 'No signed revocation snapshot';
+    if (!nextUpdate.isAfter(DateTime.now())) return 'Revocation snapshot is stale';
+    return 'Synchronized';
+  }
+}
+
 class TenancyService {
   TenancyService(this._api);
 
   final ApiClient _api;
+
+  Future<LicensingSyncStatus?> fetchLicensingSync(String organizationId) async {
+    final response = await _api.send(
+      'GET',
+      '/api/v1/organizations/$organizationId/licensing/sync',
+    );
+    if (response.statusCode == 404) return null;
+    if (response.statusCode != 200) throw ApiException.fromResponse(response);
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw ApiException(
+        statusCode: response.statusCode,
+        title: 'Unexpected licensing sync response',
+      );
+    }
+    return LicensingSyncStatus.fromJson(decoded);
+  }
 
   Future<List<Organization>> listOrganizations({
     int limit = 100,

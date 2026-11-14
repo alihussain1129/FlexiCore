@@ -27,6 +27,9 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   List<Company> _allCompanies = [];
   String? _selectedOrganizationId;
   String? _selectedCompanyId;
+  LicensingSyncStatus? _licensingSync;
+  String? _licensingSyncError;
+  bool _licensingSyncLoading = false;
   String? _error;
   bool _loading = true;
   bool _working = false;
@@ -100,11 +103,27 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
       final nextCompany = validCompanies.any((c) => c.id == previousCompany)
           ? previousCompany
           : (validCompanies.isEmpty ? null : validCompanies.first.id);
+      LicensingSyncStatus? licensingSync;
+      String? licensingSyncError;
+      if (nextOrg != null) {
+        try {
+          licensingSync = await _service.fetchLicensingSync(nextOrg);
+        } on ApiException catch (e) {
+          licensingSyncError = e.statusCode == 403
+              ? 'You cannot read licensing state for this organization.'
+              : 'Licensing synchronization is unavailable.';
+        } catch (_) {
+          licensingSyncError = 'Licensing synchronization is unavailable.';
+        }
+      }
+      if (!mounted) return;
       setState(() {
         _organizations = organizations;
         _allCompanies = companies;
         _selectedOrganizationId = nextOrg;
         _selectedCompanyId = nextCompany;
+        _licensingSync = licensingSync;
+        _licensingSyncError = licensingSyncError;
         _hasMoreOrganizations = organizations.length == 100;
         _hasMoreCompanies = companies.length == 100;
         _selectedRows.clear();
@@ -124,6 +143,46 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
           _error = 'Could not load your workspace. Please try again.';
           _loading = false;
         });
+      }
+    }
+  }
+
+  Future<void> _refreshLicensingSync(String? organizationId) async {
+    if (organizationId == null) {
+      setState(() {
+        _licensingSync = null;
+        _licensingSyncError = null;
+      });
+      return;
+    }
+    setState(() {
+      _licensingSyncLoading = true;
+      _licensingSyncError = null;
+    });
+    try {
+      final status = await _service.fetchLicensingSync(organizationId);
+      if (!mounted || _selectedOrganizationId != organizationId) return;
+      setState(() {
+        _licensingSync = status;
+        _licensingSyncError = null;
+      });
+    } on ApiException catch (e) {
+      if (!mounted || _selectedOrganizationId != organizationId) return;
+      setState(() {
+        _licensingSync = null;
+        _licensingSyncError = e.statusCode == 403
+            ? 'You cannot read licensing state for this organization.'
+            : 'Licensing synchronization is unavailable.';
+      });
+    } catch (_) {
+      if (!mounted || _selectedOrganizationId != organizationId) return;
+      setState(() {
+        _licensingSync = null;
+        _licensingSyncError = 'Licensing synchronization is unavailable.';
+      });
+    } finally {
+      if (mounted && _selectedOrganizationId == organizationId) {
+        setState(() => _licensingSyncLoading = false);
       }
     }
   }
@@ -1190,6 +1249,21 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                 if (_selectedModule == 'Overview') ...[
                   _workspaceSelectors(),
                   const SizedBox(height: FlexiCoreSpacing.large),
+                  if (_licensingSync != null || _licensingSyncError != null || _licensingSyncLoading)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: FlexiCoreSpacing.large),
+                      child: _summaryCard(
+                        'Licensing sync',
+                        _licensingSync?.state ??
+                            (_licensingSyncLoading ? 'Refreshing' : 'Unavailable'),
+                        _licensingSync?.revocationNextUpdate?.isAfter(DateTime.now()) == true
+                            ? Icons.verified_outlined
+                            : Icons.sync_problem_outlined,
+                        _licensingSyncError ?? (_licensingSync?.revocationNextUpdate == null
+                            ? 'A signed revocation snapshot is required.'
+                            : 'Revocation data valid until ${_licensingSync!.revocationNextUpdate!.toLocal()}'),
+                      ),
+                    ),
                   Text('Workspace summary', style: theme.textTheme.titleLarge),
                   const SizedBox(height: FlexiCoreSpacing.small),
                   LayoutBuilder(
@@ -1646,6 +1720,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                           ? null
                           : matches.first.id;
                     });
+                    _refreshLicensingSync(value);
                   },
                 );
                 final companyField = DropdownButtonFormField<String>(

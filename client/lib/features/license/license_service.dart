@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:http/http.dart' as http;
 
@@ -80,6 +81,7 @@ class LicenseStatus {
       case 'invalid':
       case 'expired':
       case 'notYetValid':
+      case 'revoked':
         return LicenseGate.needsLicense;
       default:
         // 'unavailable' or a state this client does not know: never let it through.
@@ -110,6 +112,101 @@ class LicenseService {
   static const statusPath = '/api/v1/license/status';
   static const importPath = '/api/v1/license';
   static const requestPath = '/api/v1/license/request';
+
+  String _organizationLicensingPath(String organizationId, String resource) =>
+      '/api/v1/organizations/$organizationId/licensing/$resource';
+
+  /// Retrieves the bounded hosted synchronization bundle. The caller must
+  /// treat it as display/sync data only; it is not an offline authorization
+  /// token and cannot extend server-side access.
+  Future<Map<String, dynamic>> fetchHostedSync(String organizationId) async {
+    final response = await _api.send(
+      'GET',
+      _organizationLicensingPath(organizationId, 'sync'),
+    );
+    if (response.statusCode != 200) throw ApiException.fromResponse(response);
+    final value = jsonDecode(response.body);
+    if (value is! Map<String, dynamic>) {
+      throw ApiException(
+        statusCode: response.statusCode,
+        title: 'Unexpected licensing sync response',
+      );
+    }
+    return value;
+  }
+
+  /// Imports a signed license artifact into a hosted organization. Idempotency
+  /// keys are generated per logical request and reused by ApiClient on a 401
+  /// retry.
+  Future<http.Response> registerHostedLicense(
+    String organizationId,
+    String signedLicenseJson,
+  ) => _api.send(
+    'POST',
+    _organizationLicensingPath(organizationId, 'licenses'),
+    rawBody: signedLicenseJson,
+    headers: {'Idempotency-Key': _newRequestId()},
+  );
+
+  Future<http.Response> renewHostedLicense({
+    required String organizationId,
+    required String previousLicenseId,
+    required String reason,
+    required String signedLicenseJson,
+  }) => _api.send(
+    'POST',
+    _organizationLicensingPath(organizationId, 'renewals'),
+    body: {
+      'previousLicenseId': previousLicenseId,
+      'reason': reason,
+      'signedLicenseBase64': base64Encode(utf8.encode(signedLicenseJson)),
+    },
+    headers: {'Idempotency-Key': _newRequestId()},
+  );
+
+  Future<http.Response> importHostedRevocations({
+    required String organizationId,
+    required String signedSnapshotJson,
+  }) => _api.send(
+    'PUT',
+    _organizationLicensingPath(organizationId, 'revocations'),
+    rawBody: signedSnapshotJson,
+  );
+
+  Future<http.Response> importHostedEntitlements({
+    required String organizationId,
+    required String signedEntitlementJson,
+  }) => _api.send(
+    'PUT',
+    _organizationLicensingPath(organizationId, 'entitlements'),
+    rawBody: signedEntitlementJson,
+  );
+
+  Future<bool> checkHostedEntitlement({
+    required String organizationId,
+    required String moduleKey,
+    required String featureKey,
+  }) async {
+    final response = await _api.send(
+      'GET',
+      '${_organizationLicensingPath(organizationId, 'entitlements')}/'
+      '${Uri.encodeComponent(moduleKey)}/${Uri.encodeComponent(featureKey)}',
+    );
+    if (response.statusCode == 403) return false;
+    if (response.statusCode != 200) throw ApiException.fromResponse(response);
+    final value = jsonDecode(response.body);
+    return value is Map<String, dynamic> && value['allowed'] == true;
+  }
+
+  static String _newRequestId() {
+    final random = Random.secure();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    final hex = bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
+        '${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
+  }
 
   /// Returns null on 401: the server does not offer anonymous license access to
   /// this caller (Hosted mode, or not the machine running the server).
@@ -196,6 +293,9 @@ class LicenseService {
       case 415:
         return 'The license could not be sent as JSON.';
       case 422:
+        if (reason == 'license_revoked') {
+          return 'This license has been revoked. Contact the vendor for assistance.';
+        }
         if (reason == 'expired') {
           return 'This license has expired. Ask for a new license file.';
         }

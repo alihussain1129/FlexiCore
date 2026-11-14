@@ -57,6 +57,11 @@ class LicenseController extends ChangeNotifier {
 
   /// Extra explanation when a license is installed but not usable.
   String? get hint {
+    if (_status?.reason == 'revocation_snapshot_stale' ||
+        _status?.reason == 'revocation_snapshot_invalid' ||
+        _status?.reason == 'revocation_storage_error') {
+      return 'This computer cannot confirm the latest license revocation status. Connect it to the licensing service or contact the administrator.';
+    }
     if (_status?.reason == 'wrong_installation') {
       return "This license was issued for a different computer. Send this computer's request code to the vendor to get a new one.";
     }
@@ -70,6 +75,8 @@ class LicenseController extends ChangeNotifier {
         return 'The installed license is not valid. Paste a valid license file to continue.';
       case 'notYetValid':
         return 'The installed license is not valid yet. Check the date on this computer, or paste a different license.';
+      case 'revoked':
+        return 'This license has been revoked. Contact the vendor for assistance.';
       default:
         return null;
     }
@@ -131,7 +138,11 @@ class LicenseController extends ChangeNotifier {
         break;
       case LicenseGate.unavailable:
         _state = LicenseUiState.unavailable;
-        _problem = 'This copy of FlexiCore cannot verify licenses right now. Contact the vendor, or try again later.';
+        _problem = switch (status.reason) {
+          'revocation_snapshot_stale' => 'The revocation information is out of date. Connect this server to the licensing administrator to refresh it.',
+          'revocation_snapshot_invalid' || 'revocation_storage_error' => 'The revocation information could not be verified. Contact the licensing administrator.',
+          _ => 'This copy of FlexiCore cannot verify licenses right now. Contact the vendor, or try again later.',
+        };
         break;
     }
   }

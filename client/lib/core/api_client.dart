@@ -74,8 +74,13 @@ class ApiClient {
     String method,
     String path, {
     Map<String, dynamic>? body,
+    String? rawBody,
+    Map<String, String>? headers,
   }) async {
-    var response = await _sendAuthed(method, path, body);
+    if (body != null && rawBody != null) {
+      throw ArgumentError('Specify either body or rawBody, not both.');
+    }
+    var response = await _sendAuthed(method, path, body, rawBody, headers);
     if (response.statusCode != 401) return response;
 
     final refreshed = await _refreshOnce();
@@ -83,20 +88,24 @@ class ApiClient {
       onSessionExpired?.call();
       return response;
     }
-    return _sendAuthed(method, path, body);
+    return _sendAuthed(method, path, body, rawBody, headers);
   }
 
   Future<http.Response> _sendAuthed(
     String method,
     String path,
     Map<String, dynamic>? body,
+    String? rawBody,
+    Map<String, String>? headers,
   ) {
     return _send(() {
       final request = http.Request(method, _uri(path));
       request.headers.addAll(_jsonHeaders);
+      if (headers != null) request.headers.addAll(headers);
       final token = _accessToken;
       if (token != null) request.headers['Authorization'] = 'Bearer $token';
       if (body != null) request.body = jsonEncode(body);
+      if (rawBody != null) request.body = rawBody;
       return _http.send(request).then(http.Response.fromStream);
     });
   }
