@@ -11,6 +11,10 @@
                  {
                      "keyId":  "flexicore-owner-2026-01",
                      "publicKey":  "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE1WZ3fHeRCJT1XQkYteqxP3pTAjTIcjqO6Bjk54LKnwCdBjDIugbE23to/4HHaR5y/xIhzULnsGXJvlVdoRIKcQ=="
-                 }
-             ]
+                 },
+    {
+        "keyId":  "fc-2026-c",
+        "publicKey":  "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEL5ha4iOLViaRMv7oRDiGrCGpasyuU3HG1FU2z1p0asRXsr9Za7m+EVYHnhx+9XTGfcn+Ug675UWHzVW97xc64w=="
+    }
+]
 }

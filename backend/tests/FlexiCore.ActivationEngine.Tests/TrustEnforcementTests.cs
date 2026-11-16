@@ -267,4 +267,15 @@ public sealed class TrustEnforcementTests : IDisposable
         Assert.Equal(LicenseStatus.Valid, verifier.Verify(firstBytes).Status);
         Assert.Equal(LicenseStatus.Valid, verifier.Verify(secondBytes).Status);
     }
+
+    [Fact]
+    public void Embedded_production_trust_has_all_four_keys_unchanged_and_rejects_unknown_ids()
+    {
+        var embedded = ProductionKeyLoader.Load().ToDictionary(k => k.KeyId, k => Short(k.SubjectPublicKeyInfo));
+        Assert.Equal("53844eef91a95d10", embedded["fc-2026-a"]);
+        Assert.Equal("6df7f3fa54f9cde0", embedded["fc-2026-b"]);
+        Assert.Equal("36d72e03d36f4516", embedded["flexicore-owner-2026-01"]);
+        Assert.Equal("f1f052bc005fc011", embedded["fc-2026-c"]);
+        Assert.False(embedded.ContainsKey("rogue-key-1"));
+    }
 }
