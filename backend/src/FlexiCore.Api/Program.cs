@@ -2,6 +2,7 @@ using FlexiCore.Api.Health;
 using FlexiCore.Api.Licensing;
 using FlexiCore.Api.Observability;
 using FlexiCore.Identity;
+using FlexiCore.Accounting;
 using FlexiCore.Tenancy;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Npgsql;
@@ -24,6 +25,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
 builder.Services.AddIdentityModule(builder.Configuration, builder.Environment);
 builder.Services.AddTenancyModule();
+builder.Services.AddAccountingModule();
 builder.Services.AddLicensingModule(builder.Configuration);
 builder.Services.AddHealthChecks()
     .AddCheck<PostgresHealthCheck>("postgres", tags: ["ready"]);
@@ -55,6 +57,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = c => c
 
 app.MapIdentityEndpoints();
 app.MapTenancyEndpoints();
+app.MapAccountingEndpoints();
 app.MapLicenseEndpoints();
 LocalSetupEndpoints.Map(app, app.Services.GetRequiredService<DeploymentSettings>());
 

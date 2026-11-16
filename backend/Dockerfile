@@ -5,6 +5,7 @@ COPY backend/src/FlexiCore.Api/FlexiCore.Api.csproj backend/src/FlexiCore.Api/
 COPY backend/src/FlexiCore.Identity/FlexiCore.Identity.csproj backend/src/FlexiCore.Identity/
 COPY backend/src/FlexiCore.SharedKernel/FlexiCore.SharedKernel.csproj backend/src/FlexiCore.SharedKernel/
 COPY backend/src/FlexiCore.Tenancy/FlexiCore.Tenancy.csproj backend/src/FlexiCore.Tenancy/
+COPY backend/src/FlexiCore.Accounting/FlexiCore.Accounting.csproj backend/src/FlexiCore.Accounting/
 COPY backend/src/FlexiCore.Licensing/FlexiCore.Licensing.csproj backend/src/FlexiCore.Licensing/
 
 RUN dotnet restore backend/src/FlexiCore.Api/FlexiCore.Api.csproj
@@ -13,6 +14,7 @@ COPY backend/src/FlexiCore.Api/ backend/src/FlexiCore.Api/
 COPY backend/src/FlexiCore.Identity/ backend/src/FlexiCore.Identity/
 COPY backend/src/FlexiCore.SharedKernel/ backend/src/FlexiCore.SharedKernel/
 COPY backend/src/FlexiCore.Tenancy/ backend/src/FlexiCore.Tenancy/
+COPY backend/src/FlexiCore.Accounting/ backend/src/FlexiCore.Accounting/
 COPY backend/src/FlexiCore.Licensing/ backend/src/FlexiCore.Licensing/
 
 RUN dotnet publish backend/src/FlexiCore.Api/FlexiCore.Api.csproj \
